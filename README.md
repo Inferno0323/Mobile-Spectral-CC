@@ -19,9 +19,9 @@
   <a href="https://lucacogo.github.io/Mobile-Spectral-AWB/">
     <img src="https://img.shields.io/badge/Project-Page-black">
   </a>
-  <a href="https://lucacogo.github.io/Mobile-Spectral-AWB/">
+  <!-- <a href="https://lucacogo.github.io/Mobile-Spectral-AWB/">
     <img src="https://img.shields.io/badge/Dataset-Page-yellow">
-  </a>
+  </a> -->
 </p>
 
 ***
@@ -33,7 +33,7 @@ Recent advances in snapshot multispectral (MS) imaging have enabled compact, low
 
 <!-- Add white background to the image -->
 
-<img style="background-color: #FFFFFF;" src="assets/GraphicalAbstract.svg">
+<img src="assets/GraphicalAbstract.svg">
 
 
 ## Data
