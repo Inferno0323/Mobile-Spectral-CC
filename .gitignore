@@ -1,0 +1,9 @@
+data/BJTU-UVA
+data/KAUST
+data/KAUST_AWB
+data/MobileSpectralAWBDataset
+data/Zurich_homographies(512x512).zip
+.env
+__pycache__/
+experiments/
+QU_ft.pth
