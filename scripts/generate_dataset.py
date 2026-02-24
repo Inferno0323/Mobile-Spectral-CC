@@ -268,7 +268,7 @@ if __name__ == "__main__":
         rgb_ssfs_dataset_path = os.path.join("data", "ImageEngineering_SSFs", "h5")
         ms_ssfs_dataset_path = os.path.join("data", "Multispectral_SSFs", "h5")
         illums_dataset_path = os.path.join("data", "SFU_measured_with_sources_illums", "measured_with_sources.illum.npy")
-        destination_path = os.path.join("data", "MobileSpectralAWBDataset")
+        destination_path = os.path.join("data", "MobileSpectralCCDataset")
         os.makedirs(os.path.join(destination_path), exist_ok=True)
         
         scenes = sorted(os.listdir(spectral_dataset_path)) 

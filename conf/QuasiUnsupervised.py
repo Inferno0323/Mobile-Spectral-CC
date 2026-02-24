@@ -11,7 +11,7 @@ cfg = dict(
 
     # Dataset settings
     data_type = "RGB", # "RGB" or "MS" or "RGB+MS"
-    dataset_root = "./data/MobileSpectralAWBDataset/",
+    dataset_root = "./data/MobileSpectralCCDataset/",
     rgb_camera = "CANON_R5",
     gt_type = "xyz", # "xyz" or "srgb" or "raw"
     spectral_camera = "SPECTRICITY_S1",
