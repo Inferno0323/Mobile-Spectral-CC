@@ -41,8 +41,8 @@ cfg = dict(
     train_checkpoint= None, # path to checkpoint to resume training (default: None)
     
     pretrained_weights = None, 
-    # pretrained_weights = "pretrained/CanonR5/SpectralConvMean.pth" # path to pretrained weight for testing on aligned data or fine-tuning on misaligned data
-    # pretrained_weights = "pretrained/CanonR5/SpectralConvMean_misaligned.pth" # path to pretrained weight for testing on misaligned data
+    # pretrained_weights = "pretrained/CanonR5/SpectralConvMean.pth", # path to pretrained weight for testing on aligned data or fine-tuning on misaligned data
+    # pretrained_weights = "pretrained/CanonR5/SpectralConvMean_misaligned.pth", # path to pretrained weight for testing on misaligned data
     
 
     val_viz_list = ["SC002_B_ILL000", "SC076_B_ILL099"],

@@ -7,3 +7,5 @@ data/Zurich_homographies(512x512).zip
 __pycache__/
 experiments/
 QU_ft.pth
+assets/pretrained
+.cache/

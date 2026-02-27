@@ -16,16 +16,13 @@
   <a href="https://arxiv.org/abs/2512.08441">
     <img src="https://img.shields.io/badge/ArXiv-Paper-B31B1B">
   </a>
-  <a href="https://lucacogo.github.io/Mobile-Spectral-AWB/">
+  <a href="https://lucacogo.github.io/Mobile-Spectral-CC/">
     <img src="https://img.shields.io/badge/Project-Page-black">
   </a>
-  <!-- <a href="https://lucacogo.github.io/Mobile-Spectral-AWB/">
+  <a href="https://huggingface.co/datasets/LucaCogo/MobileSpectralCCDataset">
     <img src="https://img.shields.io/badge/Dataset-Page-yellow">
-  </a> -->
+  </a>
 </p>
-
-***
-
 
 
 ## 📖 Overview
@@ -34,7 +31,7 @@ Recent advances in snapshot multispectral (MS) imaging have enabled compact, low
 
 <!-- Add white background to the image -->
 
-<img src="assets/GraphicalAbstract.svg">
+<img src="figs/GraphicalAbstract.svg">
 
 
 ## 📂 Dataset
@@ -43,8 +40,9 @@ We build a physically grounded synthetic dataset based on two publicly available
 
 To mimic geometric inconsistencies typical of dual-sensor systems, we further create a misaligned version of the dataset by introducing spatial offsets between RGB–MS image pairs. Realistic warping transformations are estimated from the <a href="https://aiff22.github.io/pynet.html">Zurich dataset</a> and applied to our synthesized data.
 
-The dataset will be available soon (once we figure out the best way to share it).
-In the meanwhile, you can generate it yourself by using the script `scripts/generate_dataset.py`, downloading the reflectance images of <a href="https://drive.google.com/file/d/16u0dGcZSwFqi5bhYRlSr9bNyc3oCPqi8/view?usp=sharing">KAUST</a> and <a href="https://drive.google.com/file/d/1AFjTNVmEuhKXZ8QgmSLaYADSP3q1L7HF/view?usp=sharing">BJTU-UVA</a> and placing them in the `data` folder.
+The dataset can be downloaded from here <a href="https://huggingface.co/datasets/LucaCogo/MobileSpectralCCDataset">here</a> and placed in `data/MobileSpectralCCDataset/`.
+Alternatively, you can generate it yourself by using the script `scripts/generate_dataset.py`, downloading the reflectance images of <a href="https://drive.google.com/file/d/16u0dGcZSwFqi5bhYRlSr9bNyc3oCPqi8/view?usp=sharing">KAUST</a> and <a href="https://drive.google.com/file/d/1AFjTNVmEuhKXZ8QgmSLaYADSP3q1L7HF/view?usp=sharing">BJTU-UVA</a>. </br>
+More details on dataset structure and generation can be found in the `data/README.md` file.
 
 ## ⚙️ Requirements and Usage
 

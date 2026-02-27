@@ -9,7 +9,7 @@ from .illuminant_estimation.QuasiUnsupervised import QuasiUnsupervised
 from .illuminant_estimation.ConvolutionalEB import ConvolutionalEB
 from .color_correction.classic_pipeline import ClassicCorrectionPipeline
 from .color_reproduction.MSIAWBNet import MSIAWBNet
-from .illuminant_estimation.SVWB_Unet import SVWB_Unet
+
 
 # TODO: Implement FFCC
 
@@ -22,7 +22,6 @@ __all__ = [
     'ConvMean',
     'QuasiUnsupervised',
     'FC4',
-    "SVWB_Unet",
     'CCC',
     "ClassicCorrectionPipeline",
     "MSIAWBNet",
