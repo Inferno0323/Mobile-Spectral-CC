@@ -1,4 +1,4 @@
-# Leveraging Multispectral Sensors for Color Correction in Mobile Cameras (CVPR, 2026)
+# Leveraging Multispectral Sensors for Color Correction in Mobile Cameras (CVPR 2026)
 
 
 <p align="center">
