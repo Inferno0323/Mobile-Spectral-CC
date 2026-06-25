@@ -1,6 +1,7 @@
 import os
 import importlib.util
 import time
+import copy
 from auxiliary.metrics import *
 from models import *
 from thop import profile
@@ -180,8 +181,12 @@ class BaseModel(torch.nn.Module):
         was_training = self.model.training
         self.model.eval()
 
-        # THOP profiles the real module. Timing still uses self.model, which may be DataParallel.
-        flops, params = profile(self._raw_model(), inputs=inputs, verbose=False)
+        # THOP mutates modules by adding profiling buffers. Run it on a copy so
+        # DataParallel never sees CPU-side total_ops/total_params buffers.
+        profile_model = copy.deepcopy(self._raw_model()).to(self.device)
+        profile_model.eval()
+        flops, params = profile(profile_model, inputs=inputs, verbose=False)
+        del profile_model
 
         if self._using_cuda():
             torch.cuda.reset_peak_memory_stats(self.device)
