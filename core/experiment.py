@@ -92,6 +92,9 @@ class Experiment():
         self.criterion = cfg["criterion"]
         self.metrics = cfg.get("metrics", ["deltaE00"])
         self.device = cfg["device"]
+        self.device_ids = None
+        self.data_parallel = cfg.get("data_parallel", None)
+        self.configured_device_ids = cfg.get("device_ids", None)
         self.n_workers = cfg["n_workers"]
         self.test_batch_size = cfg["test_batch_size"]
         self.exp_dir = cfg["exp_dir"]
@@ -100,12 +103,75 @@ class Experiment():
 
     def to_dict(self):
         return self.cfg
+
+    @staticmethod
+    def resolve_device_config(device_config, configured_device_ids=None, data_parallel=None):
+        def parse_device_ids(device_ids):
+            if isinstance(device_ids, str):
+                return [int(device_id.strip()) for device_id in device_ids.split(",") if device_id.strip()]
+            return [int(device_id) for device_id in device_ids]
+
+        if isinstance(device_config, str):
+            normalized_device_config = device_config.strip().lower()
+            if normalized_device_config in ("cpu", "-1"):
+                device_config = -1
+            elif normalized_device_config in ("all", "cuda"):
+                device_config = "all"
+            elif "," in normalized_device_config:
+                device_config = parse_device_ids(normalized_device_config)
+            else:
+                device_config = int(normalized_device_config)
+
+        if isinstance(device_config, (list, tuple)):
+            if len(device_config) == 0 or int(device_config[0]) < 0:
+                return torch.device("cpu"), None
+            device_ids = [int(device_id) for device_id in device_config]
+        elif device_config == "all":
+            if not torch.cuda.is_available():
+                raise RuntimeError("All CUDA devices requested, but CUDA is not available.")
+            device_ids = list(range(torch.cuda.device_count()))
+        elif int(device_config) < 0:
+            return torch.device("cpu"), None
+        else:
+            primary_device_id = int(device_config)
+            device_ids = [primary_device_id]
+
+        if not torch.cuda.is_available():
+            raise RuntimeError(f"CUDA device(s) {device_ids} requested, but CUDA is not available.")
+
+        device_count = torch.cuda.device_count()
+        invalid_device_ids = [device_id for device_id in device_ids if device_id < 0 or device_id >= device_count]
+        if invalid_device_ids:
+            raise ValueError(
+                f"Invalid CUDA device id(s) {invalid_device_ids}; available device ids are 0..{device_count - 1}."
+            )
+
+        if configured_device_ids is not None:
+            device_ids = parse_device_ids(configured_device_ids)
+        elif data_parallel is True or (data_parallel is None and len(device_ids) == 1 and device_count > 1):
+            primary_device_id = device_ids[0]
+            device_ids = [primary_device_id] + [device_id for device_id in range(device_count) if device_id != primary_device_id]
+
+        invalid_device_ids = [device_id for device_id in device_ids if device_id < 0 or device_id >= device_count]
+        if invalid_device_ids:
+            raise ValueError(
+                f"Invalid CUDA device id(s) {invalid_device_ids}; available device ids are 0..{device_count - 1}."
+            )
+
+        device_ids = list(dict.fromkeys(device_ids))
+        primary_device_id = device_ids[0]
+        parallel_device_ids = device_ids if len(device_ids) > 1 else None
+        return torch.device(f"cuda:{primary_device_id}"), parallel_device_ids
     
     def prepare_directory(self):
         if self.exp_dir is None:
             self.exp_dir = os.path.join("./experiments/", datetime.now().strftime("%y%m%d_%H%M%S") + "_" + self.exp_name)
 
-        self.device = f"cuda:{self.device}" if self.device >= 0 else "cpu"
+        self.device, self.device_ids = self.resolve_device_config(
+            self.device,
+            configured_device_ids=self.configured_device_ids,
+            data_parallel=self.data_parallel,
+        )
         os.makedirs(self.exp_dir, exist_ok=True)
         if self.val_viz_list:
             os.makedirs(os.path.join(self.exp_dir, "val_viz"), exist_ok=True)
@@ -132,6 +198,7 @@ class Experiment():
                 pass
 
     def prepare_data(self):
+        pin_memory = self.device.type == "cuda"
         if self.data_type == "RGB":
             self.train_dataset = RGBDataset(self.dataset_root, self.train_list, self.rgb_camera, self.gt_type,
                                             is_train=True, seed=self.seed)
@@ -157,10 +224,10 @@ class Experiment():
         g = torch.Generator()
         g.manual_seed(self.seed)
         if self.train:
-            self.train_loader = DataLoader(self.train_dataset, batch_size=self.train_batch_size, shuffle=True, num_workers=self.n_workers, pin_memory=True, generator=g)
-            self.val_loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, shuffle=False, num_workers=self.n_workers, pin_memory=True)
+            self.train_loader = DataLoader(self.train_dataset, batch_size=self.train_batch_size, shuffle=True, num_workers=self.n_workers, pin_memory=pin_memory, generator=g)
+            self.val_loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, shuffle=False, num_workers=self.n_workers, pin_memory=pin_memory)
         if self.test:
-            self.test_loader = DataLoader(self.test_dataset, batch_size=self.test_batch_size, shuffle=False, num_workers=self.n_workers, pin_memory=True)
+            self.test_loader = DataLoader(self.test_dataset, batch_size=self.test_batch_size, shuffle=False, num_workers=self.n_workers, pin_memory=pin_memory)
 
     def prepare_model(self):
         if self.model_type == "IE":
@@ -188,7 +255,7 @@ class Experiment():
             self.starting_epoch = 0
 
     def prepare_test(self):
-        self.model.to(self.device)
+        self.model.to(self.device, device_ids=self.device_ids)
         self.model.init_loss_criterion(self.criterion)
         if self.pretrained_weights is not None:
             self.model.load(self.pretrained_weights)
@@ -207,7 +274,7 @@ class Experiment():
         }, path)
 
     def load_checkpoint(self, path):
-        ckpt = torch.load(path, weights_only=False)
+        ckpt = torch.load(path, map_location=self.device, weights_only=False)
         filtered_state_dict = {k: v for k, v in ckpt['model_state_dict'].items() 
                            if not k.endswith('total_ops') and not k.endswith('total_params')}
         self.model.load_state_dict(filtered_state_dict, strict=False)
