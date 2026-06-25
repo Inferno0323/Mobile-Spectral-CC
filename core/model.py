@@ -21,6 +21,7 @@ class BaseModel(torch.nn.Module):
         self.model_parameters = model_parameters
         self.model = self.initialize_model()
         self.device = torch.device("cpu")
+        self.device_ids = None
 
     def initialize_model(self):
         if os.path.exists(self.model_name): # model_name is a path
@@ -42,30 +43,106 @@ class BaseModel(torch.nn.Module):
     def init_loss_criterion(self, criterion):
         self.criterion = eval(criterion)()
 
+    def _raw_model(self):
+        if isinstance(self.model, torch.nn.DataParallel):
+            return self.model.module
+        return self.model
+
+    @staticmethod
+    def _normalize_state_dict(state_dict):
+        if isinstance(state_dict, dict) and "model_state_dict" in state_dict:
+            state_dict = state_dict["model_state_dict"]
+        elif isinstance(state_dict, dict) and "state_dict" in state_dict:
+            state_dict = state_dict["state_dict"]
+
+        filtered_state_dict = {}
+        for k, v in state_dict.items():
+            if k.endswith('total_ops') or k.endswith('total_params'):
+                continue
+
+            key = k
+            for prefix in ("model.module.", "model.", "module."):
+                if key.startswith(prefix):
+                    key = key[len(prefix):]
+                    break
+            filtered_state_dict[key] = v
+
+        return filtered_state_dict
+
     def load(self, path):
         if path is not None and os.path.exists(path):
-            state_dict = torch.load(path, map_location="cpu")
-            filtered_state_dict = {k: v for k, v in state_dict.items() 
-                           if not k.endswith('total_ops') and not k.endswith('total_params')}
+            state_dict = torch.load(path, map_location="cpu", weights_only=False)
+            filtered_state_dict = self._normalize_state_dict(state_dict)
 
-            self.model.load_state_dict(filtered_state_dict, strict=False)
+            self._raw_model().load_state_dict(filtered_state_dict, strict=False)
             print(f"Loaded model weights from {path}")
         else:
             print("No checkpoint found, initializing model with random weights")
         return self.model
 
-    def to(self, device):
-        self.model.to(device)
+    def _validate_device_ids(self, device_ids):
+        if device_ids is None:
+            return None
+
+        device_ids = [int(device_id) for device_id in device_ids]
+        if len(device_ids) <= 1:
+            return None
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("DataParallel requested, but CUDA is not available.")
+
+        device_count = torch.cuda.device_count()
+        invalid_device_ids = [device_id for device_id in device_ids if device_id < 0 or device_id >= device_count]
+        if invalid_device_ids:
+            raise ValueError(
+                f"Invalid CUDA device id(s) {invalid_device_ids}; available device ids are 0..{device_count - 1}."
+            )
+
+        return device_ids
+
+    def to(self, device, device_ids=None):
+        device = torch.device(device)
+        if device.type == "cuda":
+            if not torch.cuda.is_available():
+                raise RuntimeError(f"CUDA device {device} requested, but CUDA is not available.")
+            if device.index is None:
+                device = torch.device("cuda:0")
+
+        model = self._raw_model()
+        device_ids = self._validate_device_ids(device_ids)
+
+        if device.type == "cuda" and device_ids is not None:
+            if device.index not in device_ids:
+                device_ids = [device.index] + device_ids
+            elif device_ids[0] != device.index:
+                device_ids = [device.index] + [device_id for device_id in device_ids if device_id != device.index]
+
+            model.to(device)
+            self.model = torch.nn.DataParallel(model, device_ids=device_ids, output_device=device_ids[0])
+            self.device = torch.device(f"cuda:{device_ids[0]}")
+            self.device_ids = device_ids
+            return self
+
+        self.model = model.to(device)
         self.device = device
+        self.device_ids = None
+        return self
 
     def save(self, path: str):
-        torch.save(self.model.state_dict(), path)
+        torch.save(self.state_dict(), path)
+
+    def state_dict(self, *args, **kwargs):
+        return self._raw_model().state_dict(*args, **kwargs)
+
+    def load_state_dict(self, state_dict, strict=True):
+        return self._raw_model().load_state_dict(self._normalize_state_dict(state_dict), strict=strict)
 
     def parameters(self):
         return self.model.parameters()
 
     def num_parameters(self):
-        return sum(p.numel() for p in self.model.parameters()), sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        model = self._raw_model()
+        return sum(p.numel() for p in model.parameters()), sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     def train_step(self, data):
         raise NotImplementedError("This method should be overridden by subclasses")
@@ -75,9 +152,11 @@ class BaseModel(torch.nn.Module):
 
     def train(self, mode=True):
         self.model.train(mode)
+        return self
     
     def eval(self):
         self.model.eval()
+        return self
 
     def backward_pass(self, loss):
         loss.backward()
@@ -88,6 +167,65 @@ class BaseModel(torch.nn.Module):
         
         self.optimizer.step()
         return 0
+
+    def _using_cuda(self):
+        return self.device.type == "cuda" and torch.cuda.is_available()
+
+    def _synchronize_device(self):
+        if self._using_cuda():
+            torch.cuda.synchronize(self.device)
+
+    def _profile(self, inputs, n_warmup, n_runs):
+        inputs = tuple(input_tensor.to(self.device) for input_tensor in inputs)
+        was_training = self.model.training
+        self.model.eval()
+
+        # THOP profiles the real module. Timing still uses self.model, which may be DataParallel.
+        flops, params = profile(self._raw_model(), inputs=inputs, verbose=False)
+
+        if self._using_cuda():
+            torch.cuda.reset_peak_memory_stats(self.device)
+            self._synchronize_device()
+
+        with torch.no_grad():
+            for _ in range(n_warmup):
+                _ = self.model(*inputs)
+
+        self._synchronize_device()
+
+        start_time = time.perf_counter()
+        with torch.no_grad():
+            for _ in range(n_runs):
+                _ = self.model(*inputs)
+
+        self._synchronize_device()
+
+        end_time = time.perf_counter()
+        avg_inference_time_ms = (end_time - start_time) / n_runs * 1000
+
+        if self._using_cuda():
+            max_memory_allocated_mb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 2)
+            max_memory_reserved_mb = torch.cuda.max_memory_reserved(self.device) / (1024 ** 2)
+        else:
+            max_memory_allocated_mb = 0
+            max_memory_reserved_mb = 0
+
+        self.model.train(was_training)
+
+        return {
+            "flops": flops,
+            "params": params,
+            "inference_time_ms": avg_inference_time_ms,
+            "max_memory_allocated_mb": max_memory_allocated_mb,
+            "max_memory_reserved_mb": max_memory_reserved_mb
+        }
+
+    def _spectral_input_channels(self, default=15):
+        for k in spectral_channels_param.keys():
+            if k.lower() in self.model_name.lower():
+                param_name = spectral_channels_param[k]
+                return self.model_parameters.get(param_name, default)
+        return default
     
 class IlluminantEstimationModel(BaseModel):
     def __init__(self, model_name: str, model_parameters: dict):
@@ -158,55 +296,8 @@ class IlluminantEstimationModel(BaseModel):
         Returns:
             dict with keys: flops, params, inference_time_ms, max_memory_allocated_mb, max_memory_reserved_mb
         """
-        # Create dummy input
-        dummy_input = torch.randn(1, 3, 512, 512).to(self.device)
-        
-        # Compute FLOPs and params
-        flops, params = profile(self.model, inputs=(dummy_input,), verbose=False)
-        
-        # Inference time and memory profiling
-        self.model.eval()
-        
-        # Reset memory stats if on CUDA
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(self.device)
-            torch.cuda.synchronize()
-        
-        # Warmup runs
-        with torch.no_grad():
-            for _ in range(n_warmup):
-                _ = self.model(dummy_input)
-        
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.synchronize()
-        
-        # Timed runs
-        start_time = time.perf_counter()
-        with torch.no_grad():
-            for _ in range(n_runs):
-                _ = self.model(dummy_input)
-        
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.synchronize()
-        
-        end_time = time.perf_counter()
-        avg_inference_time_ms = (end_time - start_time) / n_runs * 1000
-        
-        # Memory stats
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            max_memory_allocated_mb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 2)
-            max_memory_reserved_mb = torch.cuda.max_memory_reserved(self.device) / (1024 ** 2)
-        else:
-            max_memory_allocated_mb = 0
-            max_memory_reserved_mb = 0
-        
-        return {
-            "flops": flops,
-            "params": params,
-            "inference_time_ms": avg_inference_time_ms,
-            "max_memory_allocated_mb": max_memory_allocated_mb,
-            "max_memory_reserved_mb": max_memory_reserved_mb
-        }
+        dummy_input = torch.randn(1, 3, 512, 512, device=self.device)
+        return self._profile((dummy_input,), n_warmup, n_runs)
 
 class MSIlluminantEstimationModel(BaseModel):
 
@@ -283,59 +374,8 @@ class MSIlluminantEstimationModel(BaseModel):
         Returns:
             dict with keys: flops, params, inference_time_ms, max_memory_allocated_mb, max_memory_reserved_mb
         """
-        # Create dummy input (MS image: 15 channels, 64x64)
-        for k in spectral_channels_param.keys():
-            if k.lower() in self.model_name.lower():
-                param_name = spectral_channels_param[k]
-                dummy_input = torch.randn(1, self.model_parameters.get(param_name, 15), 64, 64).to(self.device)
-        
-        # Compute FLOPs and params
-        flops, params = profile(self.model, inputs=(dummy_input,), verbose=False)
-
-        
-        # Inference time and memory profiling
-        self.model.eval()
-        
-        # Reset memory stats if on CUDA
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(self.device)
-            torch.cuda.synchronize()
-        
-        # Warmup runs
-        with torch.no_grad():
-            for _ in range(n_warmup):
-                _ = self.model(dummy_input)
-        
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.synchronize()
-        
-        # Timed runs
-        start_time = time.perf_counter()
-        with torch.no_grad():
-            for _ in range(n_runs):
-                _ = self.model(dummy_input)
-        
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.synchronize()
-        
-        end_time = time.perf_counter()
-        avg_inference_time_ms = (end_time - start_time) / n_runs * 1000
-        
-        # Memory stats
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            max_memory_allocated_mb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 2)
-            max_memory_reserved_mb = torch.cuda.max_memory_reserved(self.device) / (1024 ** 2)
-        else:
-            max_memory_allocated_mb = 0
-            max_memory_reserved_mb = 0
-        
-        return {
-            "flops": flops,
-            "params": params,
-            "inference_time_ms": avg_inference_time_ms,
-            "max_memory_allocated_mb": max_memory_allocated_mb,
-            "max_memory_reserved_mb": max_memory_reserved_mb
-        }
+        dummy_input = torch.randn(1, self._spectral_input_channels(), 64, 64, device=self.device)
+        return self._profile((dummy_input,), n_warmup, n_runs)
 
 class JointAWBModel(BaseModel):
     def __init__(self, model_name: str, model_parameters: dict):
@@ -383,55 +423,8 @@ class JointAWBModel(BaseModel):
         Returns:
             dict with keys: flops, params, inference_time_ms, max_memory_allocated_mb, max_memory_reserved_mb
         """
-        # Create dummy input
-        dummy_input = torch.randn(1, 3, 512, 512).to(self.device)
-        
-        # Compute FLOPs and params
-        flops, params = profile(self.model, inputs=(dummy_input,), verbose=False)
-        
-        # Inference time and memory profiling
-        self.model.eval()
-        
-        # Reset memory stats if on CUDA
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(self.device)
-            torch.cuda.synchronize()
-        
-        # Warmup runs
-        with torch.no_grad():
-            for _ in range(n_warmup):
-                _ = self.model(dummy_input)
-        
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.synchronize()
-        
-        # Timed runs
-        start_time = time.perf_counter()
-        with torch.no_grad():
-            for _ in range(n_runs):
-                _ = self.model(dummy_input)
-        
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.synchronize()
-        
-        end_time = time.perf_counter()
-        avg_inference_time_ms = (end_time - start_time) / n_runs * 1000
-        
-        # Memory stats
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            max_memory_allocated_mb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 2)
-            max_memory_reserved_mb = torch.cuda.max_memory_reserved(self.device) / (1024 ** 2)
-        else:
-            max_memory_allocated_mb = 0
-            max_memory_reserved_mb = 0
-        
-        return {
-            "flops": flops,
-            "params": params,
-            "inference_time_ms": avg_inference_time_ms,
-            "max_memory_allocated_mb": max_memory_allocated_mb,
-            "max_memory_reserved_mb": max_memory_reserved_mb
-        }
+        dummy_input = torch.randn(1, 3, 512, 512, device=self.device)
+        return self._profile((dummy_input,), n_warmup, n_runs)
 
 class JointMSRGBAWBModel(BaseModel):
     def __init__(self, model_name: str, model_parameters: dict):
@@ -486,57 +479,6 @@ class JointMSRGBAWBModel(BaseModel):
         Returns:
             dict with keys: flops, params, inference_time_ms, max_memory_allocated_mb, max_memory_reserved_mb
         """
-        # Create dummy inputs (RGB: 3 channels 512x512, MSI: 15 channels 64x64)
-        dummy_rgb = torch.randn(1, 3, 512, 512).to(self.device)
-        
-        for k in spectral_channels_param.keys():
-            if k.lower() in self.model_name.lower():
-                param_name = spectral_channels_param[k]
-                dummy_msi = torch.randn(1, self.model_parameters.get(param_name, 15), 64, 64).to(self.device)
-        
-        # Compute FLOPs and params
-        flops, params = profile(self.model, inputs=(dummy_rgb, dummy_msi), verbose=False)
-        
-        # Inference time and memory profiling
-        self.model.eval()
-        
-        # Reset memory stats if on CUDA
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(self.device)
-            torch.cuda.synchronize()
-        
-        # Warmup runs
-        with torch.no_grad():
-            for _ in range(n_warmup):
-                _ = self.model(dummy_rgb, dummy_msi)
-        
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.synchronize()
-        
-        # Timed runs
-        start_time = time.perf_counter()
-        with torch.no_grad():
-            for _ in range(n_runs):
-                _ = self.model(dummy_rgb, dummy_msi)
-        
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            torch.cuda.synchronize()
-        
-        end_time = time.perf_counter()
-        avg_inference_time_ms = (end_time - start_time) / n_runs * 1000
-        
-        # Memory stats
-        if self.device != torch.device("cpu") and torch.cuda.is_available():
-            max_memory_allocated_mb = torch.cuda.max_memory_allocated(self.device) / (1024 ** 2)
-            max_memory_reserved_mb = torch.cuda.max_memory_reserved(self.device) / (1024 ** 2)
-        else:
-            max_memory_allocated_mb = 0
-            max_memory_reserved_mb = 0
-        
-        return {
-            "flops": flops,
-            "params": params,
-            "inference_time_ms": avg_inference_time_ms,
-            "max_memory_allocated_mb": max_memory_allocated_mb,
-            "max_memory_reserved_mb": max_memory_reserved_mb
-        }
+        dummy_rgb = torch.randn(1, 3, 512, 512, device=self.device)
+        dummy_msi = torch.randn(1, self._spectral_input_channels(), 64, 64, device=self.device)
+        return self._profile((dummy_rgb, dummy_msi), n_warmup, n_runs)

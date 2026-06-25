@@ -46,7 +46,9 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `seed` | int | Random seed for reproducibility |
-| `device` | int | GPU device ID (`-1` for CPU) |
+| `device` | int/list/str | GPU device ID (`-1` for CPU), list of GPU IDs for multi-GPU (for example `[0, 1]`), or `"all"` for all visible GPUs |
+| `device_ids` | list | Optional explicit CUDA device order for `DataParallel`; the first ID is the primary device |
+| `data_parallel` | bool | Optional override for `DataParallel` usage. By default, single-GPU configs use all visible CUDA devices when more than one GPU is available |
 | `n_epochs` | int | Maximum number of training epochs |
 | `n_workers` | int | Number of data loading workers |
 | `lr` | float | Learning rate |

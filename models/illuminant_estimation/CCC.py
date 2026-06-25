@@ -24,7 +24,7 @@ def get_hist_boundary():
     assert (boundary_values[0] == -boundary_values[1])
     return boundary_values
 
-def get_uv_coord(hist_size, tensor=True, normalize=False, device='cuda'):
+def get_uv_coord(hist_size, tensor=True, normalize=False, device='cpu'):
     """ Gets uv-coordinate extra channels to augment each histogram as
     mentioned in the paper.
 
@@ -33,7 +33,7 @@ def get_uv_coord(hist_size, tensor=True, normalize=False, device='cuda'):
     tensor: boolean flag for input torch tensor; default is true.
     normalize: boolean flag to normalize each coordinate channel; default
         is false.
-    device: output tensor allocation ('cuda' or 'cpu'); default is 'cuda'.
+    device: output tensor allocation ('cuda' or 'cpu'); default is 'cpu'.
 
     Returns:
     u_coord: extra channel of the u coordinate values; if tensor arg is True,
@@ -219,7 +219,7 @@ def vect_norm(vect, tensor=False, axis=1):
 #  HISTOGRAM BUILDER (BATCH)
 # ----------------------------
 class UVHistogramBatch:
-    def __init__(self, nbins=256, device='cuda'):
+    def __init__(self, nbins=256, device='cpu'):
         self.nbins = nbins
         self.device = device
         self.boundary = get_hist_boundary()
@@ -317,13 +317,15 @@ class PyramidFilter(nn.Module):
         return self.lambda_reg * s
 
 class CCC(nn.Module):
-    def __init__(self, input_size=256, device='cuda'):
+    def __init__(self, input_size=256, device='cpu'):
         super().__init__()
         self.input_size = input_size
         self.device = device
-        self.u_coord, self.v_coord = ops.get_uv_coord(self.input_size,
-                                                      tensor=True,
-                                                      device=self.device)
+        u_coord, v_coord = get_uv_coord(self.input_size,
+                                        tensor=True,
+                                        device=self.device)
+        self.register_buffer("u_coord", u_coord)
+        self.register_buffer("v_coord", v_coord)
         # learnable CCC parameters:
         self.F = nn.Parameter(torch.randn(2, input_size, input_size) * 0.01)
         self.B = nn.Parameter(torch.zeros(input_size, input_size))

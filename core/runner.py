@@ -72,7 +72,7 @@ class Runner():
     def test(self):
         if self.experiment.train:
             self.experiment.model.load(os.path.join(self.experiment.exp_dir, "best.pth"))
-            self.experiment.model.to(self.experiment.device)
+            self.experiment.model.to(self.experiment.device, device_ids=self.experiment.device_ids)
 
         self.experiment.model.eval()
         test_loop = tqdm.tqdm(self.experiment.test_loader, desc=f"Testing")
