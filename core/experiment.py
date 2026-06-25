@@ -34,7 +34,8 @@ class Experiment():
 
         self.prepare_directory()
 
-        seed_everything(self.seed)
+        seed_everything(self.seed, deterministic=self.deterministic)
+        self.configure_torch_runtime()
 
         self.prepare_data() 
         self.prepare_model()
@@ -100,9 +101,25 @@ class Experiment():
         self.exp_dir = cfg["exp_dir"]
         self.train_checkpoint = cfg.get("train_checkpoint", None)
         self.pretrained_weights = cfg.get("pretrained_weights", None)
+        self.deterministic = cfg.get("deterministic", True)
+        self.amp = cfg.get("amp", False)
+        self.amp_dtype = cfg.get("amp_dtype", "float16")
+        self.tf32 = cfg.get("tf32", False)
+        self.channels_last = cfg.get("channels_last", False)
+        self.non_blocking = cfg.get("non_blocking", False)
+        self.profile_model = cfg.get("profile_model", True)
+        self.persistent_workers = cfg.get("persistent_workers", False)
+        self.prefetch_factor = cfg.get("prefetch_factor", None)
 
     def to_dict(self):
         return self.cfg
+
+    def configure_torch_runtime(self):
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = self.tf32
+            torch.backends.cudnn.allow_tf32 = self.tf32
+            if self.tf32 and hasattr(torch, "set_float32_matmul_precision"):
+                torch.set_float32_matmul_precision("high")
 
     @staticmethod
     def resolve_device_config(device_config, configured_device_ids=None, data_parallel=None):
@@ -229,11 +246,19 @@ class Experiment():
         
         g = torch.Generator()
         g.manual_seed(self.seed)
+        loader_kwargs = dict(
+            num_workers=self.n_workers,
+            pin_memory=pin_memory,
+            persistent_workers=self.persistent_workers and self.n_workers > 0,
+        )
+        if self.prefetch_factor is not None and self.n_workers > 0:
+            loader_kwargs["prefetch_factor"] = self.prefetch_factor
+
         if self.train:
-            self.train_loader = DataLoader(self.train_dataset, batch_size=self.train_batch_size, shuffle=True, num_workers=self.n_workers, pin_memory=pin_memory, generator=g)
-            self.val_loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, shuffle=False, num_workers=self.n_workers, pin_memory=pin_memory)
+            self.train_loader = DataLoader(self.train_dataset, batch_size=self.train_batch_size, shuffle=True, generator=g, **loader_kwargs)
+            self.val_loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, shuffle=False, **loader_kwargs)
         if self.test:
-            self.test_loader = DataLoader(self.test_dataset, batch_size=self.test_batch_size, shuffle=False, num_workers=self.n_workers, pin_memory=pin_memory)
+            self.test_loader = DataLoader(self.test_dataset, batch_size=self.test_batch_size, shuffle=False, **loader_kwargs)
 
     def prepare_model(self):
         if self.model_type == "IE":
@@ -262,6 +287,12 @@ class Experiment():
 
     def prepare_test(self):
         self.model.to(self.device, device_ids=self.device_ids)
+        self.model.configure_performance(
+            amp=self.amp,
+            amp_dtype=self.amp_dtype,
+            channels_last=self.channels_last,
+            non_blocking=self.non_blocking,
+        )
         self.model.init_loss_criterion(self.criterion)
         if self.pretrained_weights is not None:
             self.model.load(self.pretrained_weights)

@@ -2,6 +2,7 @@ import os
 import importlib.util
 import time
 import copy
+from contextlib import nullcontext
 from auxiliary.metrics import *
 from models import *
 from thop import profile
@@ -23,6 +24,11 @@ class BaseModel(torch.nn.Module):
         self.model = self.initialize_model()
         self.device = torch.device("cpu")
         self.device_ids = None
+        self.amp_enabled = False
+        self.amp_dtype = torch.float16
+        self.scaler = None
+        self.channels_last = False
+        self.non_blocking = False
 
     def initialize_model(self):
         if os.path.exists(self.model_name): # model_name is a path
@@ -43,6 +49,39 @@ class BaseModel(torch.nn.Module):
 
     def init_loss_criterion(self, criterion):
         self.criterion = eval(criterion)()
+
+    def configure_performance(self, amp=False, amp_dtype="float16", channels_last=False, non_blocking=False):
+        self.amp_enabled = bool(amp) and self._using_cuda()
+        self.amp_dtype = torch.bfloat16 if amp_dtype == "bfloat16" else torch.float16
+        self.channels_last = bool(channels_last)
+        self.non_blocking = bool(non_blocking) and self._using_cuda()
+        self.scaler = self._make_grad_scaler()
+
+        if self.channels_last and self._using_cuda():
+            self.model.to(memory_format=torch.channels_last)
+
+    def _make_grad_scaler(self):
+        if not self.amp_enabled:
+            return None
+        if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
+            return torch.amp.GradScaler(self.device.type, enabled=True)
+        return torch.cuda.amp.GradScaler(enabled=True)
+
+    def _autocast(self):
+        if not self.amp_enabled:
+            return nullcontext()
+        if hasattr(torch, "amp") and hasattr(torch.amp, "autocast"):
+            return torch.amp.autocast(device_type=self.device.type, dtype=self.amp_dtype, enabled=True)
+        return torch.cuda.amp.autocast(dtype=self.amp_dtype, enabled=True)
+
+    def _move(self, tensor):
+        tensor = tensor.to(self.device, non_blocking=self.non_blocking)
+        if self.channels_last and tensor.ndim == 4 and self._using_cuda():
+            tensor = tensor.contiguous(memory_format=torch.channels_last)
+        return tensor
+
+    def _metric_tensor(self, tensor):
+        return tensor.float() if self.amp_enabled else tensor
 
     def _raw_model(self):
         if isinstance(self.model, torch.nn.DataParallel):
@@ -160,13 +199,24 @@ class BaseModel(torch.nn.Module):
         return self
 
     def backward_pass(self, loss):
-        loss.backward()
+        if self.scaler is not None:
+            self.scaler.scale(loss).backward()
+            self.scaler.unscale_(self.optimizer)
+        else:
+            loss.backward()
+
         # If gradients go to NaN or Inf, skip the update
         if any(torch.isnan(param.grad).any() or torch.isinf(param.grad).any() for param in self.model.parameters() if param.grad is not None):
             print("NaN or Inf detected in gradients, skipping optimizer step.")
+            if self.scaler is not None:
+                self.scaler.update()
             return -1
-        
-        self.optimizer.step()
+
+        if self.scaler is not None:
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            self.optimizer.step()
         return 0
 
     def _using_cuda(self):
@@ -240,56 +290,58 @@ class IlluminantEstimationModel(BaseModel):
         self.correction_module = ClassicCorrectionPipeline()
 
     def train_step(self, data):
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
 
-        rgb_image = data["rgb_image"].to(self.device)
-        gt_image = data["gt_image"].to(self.device)
-        gt_illum = data["metadata"]["illuminant_rgb"].to(self.device)
-        pred_illuminant = self.model(rgb_image)
+        rgb_image = self._move(data["rgb_image"])
+        gt_image = self._move(data["gt_image"])
+        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
-        loss = self.criterion(pred_illuminant, gt_illum)
+        with self._autocast():
+            pred_illuminant = self.model(rgb_image)
+            loss = self.criterion(pred_illuminant, gt_illum)
 
         backward_status = self.backward_pass(loss)
         pred_xyz = self.correction_module(rgb = rgb_image, 
-                                        ill = pred_illuminant.detach(), 
-                                        ill_cct = data["metadata"]["ill_cct"].to(self.device), 
-                                        cct_2500 = data["metadata"]["cct_2500K"].to(self.device), 
-                                        cct_6500 = data["metadata"]["cct_6500K"].to(self.device))
+                                        ill = self._metric_tensor(pred_illuminant.detach()),
+                                        ill_cct = self._move(data["metadata"]["ill_cct"]),
+                                        cct_2500 = self._move(data["metadata"]["cct_2500K"]),
+                                        cct_6500 = self._move(data["metadata"]["cct_6500K"]))
 
-        return loss.item(), pred_xyz, backward_status
+        return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
     def eval_step(self, data):
-        rgb_image = data["rgb_image"].to(self.device)
-        gt_image = data["gt_image"].to(self.device)
-        gt_illum = data["metadata"]["illuminant_rgb"].to(self.device)
+        rgb_image = self._move(data["rgb_image"])
+        gt_image = self._move(data["gt_image"])
+        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
-        pred_illuminant = self.model(rgb_image)
-
-        loss = self.criterion(pred_illuminant, gt_illum)
+        with self._autocast():
+            pred_illuminant = self.model(rgb_image)
+            loss = self.criterion(pred_illuminant, gt_illum)
 
         pred_xyz = self.correction_module(rgb = rgb_image, 
-                                        ill = pred_illuminant.detach(),
-                                        ill_cct = data["metadata"]["ill_cct"].to(self.device), 
-                                        cct_2500 = data["metadata"]["cct_2500K"].to(self.device), 
-                                        cct_6500 = data["metadata"]["cct_6500K"].to(self.device))
+                                        ill = self._metric_tensor(pred_illuminant.detach()),
+                                        ill_cct = self._move(data["metadata"]["ill_cct"]),
+                                        cct_2500 = self._move(data["metadata"]["cct_2500K"]),
+                                        cct_6500 = self._move(data["metadata"]["cct_6500K"]))
 
 
-        return loss.item(), pred_xyz
+        return loss.item(), self._metric_tensor(pred_xyz)
 
     def inference_step(self, rgb_image, ccts):
-        rgb_image = rgb_image.to(self.device)
+        rgb_image = self._move(rgb_image)
 
-        pred_illuminant = self.model(rgb_image)
+        with self._autocast():
+            pred_illuminant = self.model(rgb_image)
 
 
         pred_xyz = self.correction_module(rgb = rgb_image, 
-                                        ill = pred_illuminant.detach(),
-                                        ill_cct = ccts["ill_cct"].to(self.device),
-                                        cct_2500 = ccts["cct_2500K"].to(self.device),
-                                        cct_6500 = ccts["cct_6500K"].to(self.device)
+                                        ill = self._metric_tensor(pred_illuminant.detach()),
+                                        ill_cct = self._move(ccts["ill_cct"]),
+                                        cct_2500 = self._move(ccts["cct_2500K"]),
+                                        cct_6500 = self._move(ccts["cct_6500K"])
                                         )
 
-        return pred_xyz.clamp(0,1)
+        return self._metric_tensor(pred_xyz).clamp(0,1)
 
     def profile(self, n_warmup=10, n_runs=100):
         """Profile the model for FLOPs, params, inference time, and memory usage.
@@ -313,61 +365,62 @@ class MSIlluminantEstimationModel(BaseModel):
         self.correction_module = ClassicCorrectionPipeline()
 
     def train_step(self, data):
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
 
-        rgb_image = data["rgb_image"].to(self.device)
-        ms_image = data["ms_image"].to(self.device)
-        gt_image = data["gt_image"].to(self.device)
-        gt_illum = data["metadata"]["illuminant_rgb"].to(self.device)
+        rgb_image = self._move(data["rgb_image"])
+        ms_image = self._move(data["ms_image"])
+        gt_image = self._move(data["gt_image"])
+        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
-        pred_illuminant = self.model(ms_image)
-
-        loss = self.criterion(pred_illuminant, gt_illum)
+        with self._autocast():
+            pred_illuminant = self.model(ms_image)
+            loss = self.criterion(pred_illuminant, gt_illum)
 
         backward_status = self.backward_pass(loss)
         pred_xyz = self.correction_module(rgb = rgb_image, 
-                                        ill = pred_illuminant.detach(), 
-                                        ill_cct = data["metadata"]["ill_cct"].to(self.device), 
-                                        cct_2500 = data["metadata"]["cct_2500K"].to(self.device), 
-                                        cct_6500 = data["metadata"]["cct_6500K"].to(self.device))
+                                        ill = self._metric_tensor(pred_illuminant.detach()),
+                                        ill_cct = self._move(data["metadata"]["ill_cct"]),
+                                        cct_2500 = self._move(data["metadata"]["cct_2500K"]),
+                                        cct_6500 = self._move(data["metadata"]["cct_6500K"]))
 
-        return loss.item(), pred_xyz, backward_status
+        return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
     def eval_step(self, data):
-        rgb_image = data["rgb_image"].to(self.device)
-        ms_image = data["ms_image"].to(self.device)
-        gt_image = data["gt_image"].to(self.device)
-        gt_illum = data["metadata"]["illuminant_rgb"].to(self.device)
-
-        pred_illuminant = self.model(ms_image)
+        rgb_image = self._move(data["rgb_image"])
+        ms_image = self._move(data["ms_image"])
+        gt_image = self._move(data["gt_image"])
+        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
 
-        loss = self.criterion(pred_illuminant, gt_illum)
+        with self._autocast():
+            pred_illuminant = self.model(ms_image)
+            loss = self.criterion(pred_illuminant, gt_illum)
 
         pred_xyz = self.correction_module(rgb = rgb_image, 
-                                        ill = pred_illuminant.detach(), 
-                                        ill_cct = data["metadata"]["ill_cct"].to(self.device), 
-                                        cct_2500 = data["metadata"]["cct_2500K"].to(self.device), 
-                                        cct_6500 = data["metadata"]["cct_6500K"].to(self.device))
+                                        ill = self._metric_tensor(pred_illuminant.detach()),
+                                        ill_cct = self._move(data["metadata"]["ill_cct"]),
+                                        cct_2500 = self._move(data["metadata"]["cct_2500K"]),
+                                        cct_6500 = self._move(data["metadata"]["cct_6500K"]))
 
 
-        return loss.item(), pred_xyz
+        return loss.item(), self._metric_tensor(pred_xyz)
 
     def inference_step(self, rgb_image, ms_image, ccts):
-        rgb_image = rgb_image.to(self.device)
-        ms_image = ms_image.to(self.device)
+        rgb_image = self._move(rgb_image)
+        ms_image = self._move(ms_image)
 
-        pred_illuminant = self.model(ms_image)
+        with self._autocast():
+            pred_illuminant = self.model(ms_image)
 
 
         pred_xyz = self.correction_module(rgb = rgb_image, 
-                                        ill = pred_illuminant.detach(),
-                                        ill_cct = ccts["ill_cct"].to(self.device),
-                                        cct_2500 = ccts["cct_2500K"].to(self.device),
-                                        cct_6500 = ccts["cct_6500K"].to(self.device)
+                                        ill = self._metric_tensor(pred_illuminant.detach()),
+                                        ill_cct = self._move(ccts["ill_cct"]),
+                                        cct_2500 = self._move(ccts["cct_2500K"]),
+                                        cct_6500 = self._move(ccts["cct_6500K"])
                                         )
 
-        return pred_xyz.clamp(0,1)
+        return self._metric_tensor(pred_xyz).clamp(0,1)
 
     def profile(self, n_warmup=10, n_runs=100):
         """Profile the model for FLOPs, params, inference time, and memory usage.
@@ -388,35 +441,36 @@ class JointAWBModel(BaseModel):
         self.model_type = "J"
  
     def train_step(self, data):
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
 
-        rgb_image = data["rgb_image"].to(self.device)
-        gt_image = data["gt_image"].to(self.device)
-        gt_illum = data["metadata"]["illuminant_rgb"].to(self.device)
+        rgb_image = self._move(data["rgb_image"])
+        gt_image = self._move(data["gt_image"])
+        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
-        pred_xyz = self.model(rgb_image)
-
-        loss = self.criterion(pred_xyz, gt_image)
+        with self._autocast():
+            pred_xyz = self.model(rgb_image)
+            loss = self.criterion(pred_xyz, gt_image)
         backward_status = self.backward_pass(loss)
-        return loss.item(), pred_xyz, backward_status
+        return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
     def eval_step(self, data):
-        rgb_image = data["rgb_image"].to(self.device)
-        gt_image = data["gt_image"].to(self.device)
-        gt_illum = data["metadata"]["illuminant_rgb"].to(self.device)
+        rgb_image = self._move(data["rgb_image"])
+        gt_image = self._move(data["gt_image"])
+        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
-        pred_xyz = self.model(rgb_image)
+        with self._autocast():
+            pred_xyz = self.model(rgb_image)
+            loss = self.criterion(pred_xyz, gt_image)
 
-        loss = self.criterion(pred_xyz, gt_image)
-
-        return loss.item(), pred_xyz 
+        return loss.item(), self._metric_tensor(pred_xyz)
 
     def inference_step(self, rgb_image):
-        rgb_image = rgb_image.to(self.device)
+        rgb_image = self._move(rgb_image)
 
-        pred_xyz = self.model(rgb_image)
+        with self._autocast():
+            pred_xyz = self.model(rgb_image)
 
-        return pred_xyz.clamp(0,1)
+        return self._metric_tensor(pred_xyz).clamp(0,1)
 
     def profile(self, n_warmup=10, n_runs=100):
         """Profile the model for FLOPs, params, inference time, and memory usage.
@@ -439,40 +493,41 @@ class JointMSRGBAWBModel(BaseModel):
         self.criterion_proxy = AngularErrorLoss()
 
     def train_step(self, data):
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
 
 
-        rgb_image = data["rgb_image"].to(self.device)
-        ms_image = data["ms_image"].to(self.device)
-        gt_image = data["gt_image"].to(self.device)
-        gt_illum = data["metadata"]["illuminant_rgb"].to(self.device)
+        rgb_image = self._move(data["rgb_image"])
+        ms_image = self._move(data["ms_image"])
+        gt_image = self._move(data["gt_image"])
+        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
-        pred_xyz = self.model(rgb_image, ms_image)
-
-        loss = self.criterion(pred_xyz, gt_image)
+        with self._autocast():
+            pred_xyz = self.model(rgb_image, ms_image)
+            loss = self.criterion(pred_xyz, gt_image)
         
         backward_status = self.backward_pass(loss)
-        return loss.item(), pred_xyz, backward_status 
+        return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
     def eval_step(self, data):
-        rgb_image = data["rgb_image"].to(self.device)
-        ms_image = data["ms_image"].to(self.device)
-        gt_image = data["gt_image"].to(self.device)
-        gt_illum = data["metadata"]["illuminant_rgb"].to(self.device)
+        rgb_image = self._move(data["rgb_image"])
+        ms_image = self._move(data["ms_image"])
+        gt_image = self._move(data["gt_image"])
+        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
-        pred_xyz = self.model(rgb_image, ms_image)
+        with self._autocast():
+            pred_xyz = self.model(rgb_image, ms_image)
+            loss = self.criterion(pred_xyz, gt_image)
 
-        loss = self.criterion(pred_xyz, gt_image)
-
-        return loss.item(), pred_xyz 
+        return loss.item(), self._metric_tensor(pred_xyz)
 
     def inference_step(self, rgb_image, ms_image):
-        rgb_image = rgb_image.to(self.device)
-        ms_image = ms_image.to(self.device)
+        rgb_image = self._move(rgb_image)
+        ms_image = self._move(ms_image)
 
-        pred_xyz = self.model(rgb_image, ms_image)
+        with self._autocast():
+            pred_xyz = self.model(rgb_image, ms_image)
 
-        return pred_xyz.clamp(0,1)
+        return self._metric_tensor(pred_xyz).clamp(0,1)
 
     def profile(self, n_warmup=10, n_runs=100):
         """Profile the model for FLOPs, params, inference time, and memory usage.

@@ -56,6 +56,15 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 | `early_stop` | int | Early stopping patience (epochs) |
 | `criterion` | str | Loss function: `"AngularErrorLoss"`, `"L1Loss"`, `"L2Loss"`, `"deltaE76Loss"` |
 | `metrics` | list | Evaluation metrics: `["ReproductionError", "deltaE00", "PSNR", "LPIPS"]` |
+| `deterministic` | bool | Keep deterministic CUDA behavior (`True`, default) or allow faster cuDNN autotuned kernels (`False`) |
+| `amp` | bool | Enable automatic mixed precision on CUDA for faster training and lower memory use |
+| `amp_dtype` | str | AMP dtype: `"float16"` or `"bfloat16"` |
+| `tf32` | bool | Enable TF32 matmul/cuDNN kernels on supported NVIDIA GPUs |
+| `channels_last` | bool | Use channels-last memory format for CUDA convolution throughput |
+| `non_blocking` | bool | Use non-blocking host-to-GPU tensor transfers when pinned memory is enabled |
+| `persistent_workers` | bool | Keep DataLoader workers alive across epochs |
+| `prefetch_factor` | int | Number of batches each DataLoader worker prefetches |
+| `profile_model` | bool | Run startup FLOPs/timing profiling (`True`, default); disable for faster startup |
 
 ### Checkpoints & Pretrained Weights
 

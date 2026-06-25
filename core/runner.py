@@ -27,7 +27,7 @@ class Runner():
                 loss, pred, backward_status = self.experiment.model.train_step(data)
                 if backward_status != 0:
                     self.experiment.logger.log_gradient_error(epoch=epoch, iter=i)           
-                self.experiment.train_metrics.update(pred, data["gt_image"].to(self.experiment.device), loss)
+                self.experiment.train_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
                 train_loop.set_postfix(loss=loss)
 
             self.experiment.model.eval()
@@ -36,7 +36,7 @@ class Runner():
                 for i, data in enumerate(val_loop):
                     loss = 0
                     loss, pred = self.experiment.model.eval_step(data)
-                    self.experiment.val_metrics.update(pred, data["gt_image"].to(self.experiment.device), loss)
+                    self.experiment.val_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
 
                     if self.experiment.val_viz_list and any([x in self.experiment.val_viz_list for x in data["file_name"]]):
                         idx = [x in self.experiment.val_viz_list for x in data["file_name"]].index(True)
@@ -87,7 +87,7 @@ class Runner():
                 loss = 0
                 loss, pred = self.experiment.model.eval_step(data)
                                 
-                self.experiment.test_metrics.update(pred, data["gt_image"].to(self.experiment.device), loss)
+                self.experiment.test_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
 
                 # Get the metrics for current batch (last batch_size values)
                 batch_size = pred.shape[0]

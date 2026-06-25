@@ -21,14 +21,44 @@ if __name__ == "__main__":
     # Optional arguments to override config parameters
     parser.add_argument("--device", type=str, default=None, help="Specify the GPU id(s) to use (-1/cpu, 0, 0,1, or all)")
     parser.add_argument("--workers", type=int, default=None, help="Specify the number of workers")
+    parser.add_argument("--fast", action="store_true", help="Enable high-throughput GPU settings: AMP, TF32, cuDNN benchmark, persistent workers, and no startup profiling")
+    parser.add_argument("--amp", action="store_true", help="Enable automatic mixed precision")
+    parser.add_argument("--amp-dtype", type=str, default=None, choices=["float16", "bfloat16"], help="AMP dtype to use when AMP is enabled")
+    parser.add_argument("--skip-profile", action="store_true", help="Skip startup FLOPs/inference profiling")
+    parser.add_argument("--train-batch-size", type=int, default=None, help="Override the training batch size")
+    parser.add_argument("--val-batch-size", type=int, default=None, help="Override the validation batch size")
+    parser.add_argument("--test-batch-size", type=int, default=None, help="Override the test batch size")
 
     opt = parser.parse_args()
     # define the optional args
     args = {}
+    if opt.fast:
+        args.update({
+            "deterministic": False,
+            "amp": True,
+            "tf32": True,
+            "channels_last": True,
+            "non_blocking": True,
+            "profile_model": False,
+            "persistent_workers": True,
+            "prefetch_factor": 4,
+        })
     if opt.device is not None:
         args["device"] = parse_device_arg(opt.device)
     if opt.workers is not None:
         args["n_workers"] = opt.workers
+    if opt.amp:
+        args["amp"] = True
+    if opt.amp_dtype is not None:
+        args["amp_dtype"] = opt.amp_dtype
+    if opt.skip_profile:
+        args["profile_model"] = False
+    if opt.train_batch_size is not None:
+        args["train_batch_size"] = opt.train_batch_size
+    if opt.val_batch_size is not None:
+        args["val_batch_size"] = opt.val_batch_size
+    if opt.test_batch_size is not None:
+        args["test_batch_size"] = opt.test_batch_size
     
     # create the runner
     r = Runner(cfg=opt.config_file, **args)

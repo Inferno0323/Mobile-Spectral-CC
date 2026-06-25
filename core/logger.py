@@ -23,13 +23,16 @@ class Logger():
         if experiment is not None:
             # Return experiment model parameters
             num_params, num_trainable = experiment.model.num_parameters()
-            profile_stats = experiment.model.profile()
             msg += f"Parameters: {num_params/1e6:.4f} M (of which {num_trainable/1e6:.4f} M trainable)\n"
-            # Return experiment model FLOPs and profiling info
-            msg += f"FLOPs: {profile_stats['flops']/1e9:.4f} G, Params: {profile_stats['params']/1e6:.4f} M\n"
-            msg += f"Inference Time: {profile_stats['inference_time_ms']:.2f} ms\n"
-            msg += f"FPS: {1000/profile_stats['inference_time_ms']:.2f}\n"
-            msg += f"Max Memory Allocated: {profile_stats['max_memory_allocated_mb']:.2f} MB, Reserved: {profile_stats['max_memory_reserved_mb']:.2f} MB\n"
+            if getattr(experiment, "profile_model", True):
+                profile_stats = experiment.model.profile()
+                # Return experiment model FLOPs and profiling info
+                msg += f"FLOPs: {profile_stats['flops']/1e9:.4f} G, Params: {profile_stats['params']/1e6:.4f} M\n"
+                msg += f"Inference Time: {profile_stats['inference_time_ms']:.2f} ms\n"
+                msg += f"FPS: {1000/profile_stats['inference_time_ms']:.2f}\n"
+                msg += f"Max Memory Allocated: {profile_stats['max_memory_allocated_mb']:.2f} MB, Reserved: {profile_stats['max_memory_reserved_mb']:.2f} MB\n"
+            else:
+                msg += "Model profiling: disabled\n"
 
         msg += f"Dataset Root: {self.exp_cfg.get('dataset_root')}\n"
         msg += f"RGB Camera: {self.exp_cfg.get('rgb_camera')}" if self.exp_cfg.get('data_type') in ["RGB", "RGB+MS"] else ""
