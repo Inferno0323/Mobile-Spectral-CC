@@ -108,7 +108,10 @@ class Experiment():
     def resolve_device_config(device_config, configured_device_ids=None, data_parallel=None):
         def parse_device_ids(device_ids):
             if isinstance(device_ids, str):
-                return [int(device_id.strip()) for device_id in device_ids.split(",") if device_id.strip()]
+                normalized_device_ids = device_ids.strip().lower()
+                if normalized_device_ids in ("all", "cuda"):
+                    return list(range(torch.cuda.device_count()))
+                return [int(device_id.strip()) for device_id in normalized_device_ids.split(",") if device_id.strip()]
             return [int(device_id) for device_id in device_ids]
 
         if isinstance(device_config, str):
@@ -159,6 +162,9 @@ class Experiment():
             )
 
         device_ids = list(dict.fromkeys(device_ids))
+        if len(device_ids) == 0:
+            raise ValueError("At least one CUDA device id must be provided.")
+
         primary_device_id = device_ids[0]
         parallel_device_ids = device_ids if len(device_ids) > 1 else None
         return torch.device(f"cuda:{primary_device_id}"), parallel_device_ids
