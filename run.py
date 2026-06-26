@@ -31,6 +31,8 @@ if __name__ == "__main__":
     parser.add_argument("--prefetch-factor", type=int, default=None, help="Override DataLoader prefetch batches per worker")
     parser.add_argument("--skip-train-metrics", action="store_true", help="Track training loss only; skip expensive per-batch image metrics/correction")
     parser.add_argument("--input-size", type=int, default=None, help="Override square neural-network input size for compatible models such as FC4")
+    parser.add_argument("--cache-rgb", action="store_true", help="Cache resized RGB training tensors for fast FC4/RGB training")
+    parser.add_argument("--cache-dir", type=str, default=None, help="Directory for fast RGB tensor cache")
 
     opt = parser.parse_args()
     # define the optional args
@@ -46,6 +48,7 @@ if __name__ == "__main__":
             "persistent_workers": True,
             "prefetch_factor": 2,
             "train_metrics": False,
+            "cache_rgb": True,
         })
     if opt.device is not None:
         args["device"] = parse_device_arg(opt.device)
@@ -69,6 +72,10 @@ if __name__ == "__main__":
         args["train_metrics"] = False
     if opt.input_size is not None:
         args["model_parameter_overrides"] = {"input_size": opt.input_size}
+    if opt.cache_rgb:
+        args["cache_rgb"] = True
+    if opt.cache_dir is not None:
+        args["cache_dir"] = opt.cache_dir
     
     # create the runner
     r = Runner(cfg=opt.config_file, **args)

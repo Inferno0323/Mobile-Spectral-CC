@@ -67,6 +67,8 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 | `prefetch_factor` | int | Number of batches each DataLoader worker prefetches |
 | `profile_model` | bool | Run startup FLOPs/timing profiling (`True`, default); disable for faster startup |
 | `train_metrics` | bool | Compute full training image metrics every batch (`True`, default); set `False` for loss-only training logs and faster FC4/IE training |
+| `cache_rgb` | bool | Cache resized RGB training tensors for fast FC4/RGB training |
+| `cache_dir` | str | Optional directory for the fast RGB tensor cache |
 
 ### Checkpoints & Pretrained Weights
 

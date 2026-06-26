@@ -118,6 +118,8 @@ class Experiment():
         self.persistent_workers = cfg.get("persistent_workers", False)
         self.prefetch_factor = cfg.get("prefetch_factor", None)
         self.train_metrics_enabled = cfg.get("train_metrics", True)
+        self.cache_rgb = cfg.get("cache_rgb", False)
+        self.cache_dir = cfg.get("cache_dir", None)
 
     def to_dict(self):
         return self.cfg
@@ -234,7 +236,8 @@ class Experiment():
         train_input_size = None if train_load_gt else self.model_parameters.get("input_size", None)
         if self.data_type == "RGB":
             self.train_dataset = RGBDataset(self.dataset_root, self.train_list, self.rgb_camera, self.gt_type,
-                                            is_train=True, seed=self.seed, load_gt=train_load_gt, input_size=train_input_size)
+                                            is_train=True, seed=self.seed, load_gt=train_load_gt, input_size=train_input_size,
+                                            cache_rgb=self.cache_rgb and not train_load_gt, cache_dir=self.cache_dir)
             self.val_dataset = RGBDataset(self.dataset_root, self.val_list, self.rgb_camera, self.gt_type,
                                           is_train=False, seed=self.seed)
             self.test_dataset = RGBDataset(self.dataset_root, self.test_list, self.rgb_camera, self.gt_type,
