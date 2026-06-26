@@ -10,6 +10,9 @@ from functools import lru_cache
 
 import ipdb
 
+cv2.setNumThreads(0)
+cv2.ocl.setUseOpenCL(False)
+
 # Default path for Zurich homographies
 DEFAULT_HOMOGRAPHIES_PATH = "data/Zurich_homographies(512x512)"
 HOMOGRAPHY_REF_SIZE = 512  # Reference size for which homographies were computed

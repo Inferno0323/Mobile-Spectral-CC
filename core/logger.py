@@ -33,6 +33,7 @@ class Logger():
                 msg += f"Max Memory Allocated: {profile_stats['max_memory_allocated_mb']:.2f} MB, Reserved: {profile_stats['max_memory_reserved_mb']:.2f} MB\n"
             else:
                 msg += "Model profiling: disabled\n"
+            msg += f"Training Metrics: {'enabled' if getattr(experiment, 'train_metrics_enabled', True) else 'loss-only'}\n"
 
         msg += f"Dataset Root: {self.exp_cfg.get('dataset_root')}\n"
         msg += f"RGB Camera: {self.exp_cfg.get('rgb_camera')}" if self.exp_cfg.get('data_type') in ["RGB", "RGB+MS"] else ""

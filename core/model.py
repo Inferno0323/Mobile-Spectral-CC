@@ -293,7 +293,6 @@ class IlluminantEstimationModel(BaseModel):
         self.optimizer.zero_grad(set_to_none=True)
 
         rgb_image = self._move(data["rgb_image"])
-        gt_image = self._move(data["gt_image"])
         gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
         with self._autocast():
@@ -372,7 +371,6 @@ class MSIlluminantEstimationModel(BaseModel):
 
         rgb_image = self._move(data["rgb_image"])
         ms_image = self._move(data["ms_image"])
-        gt_image = self._move(data["gt_image"])
         gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
         with self._autocast():

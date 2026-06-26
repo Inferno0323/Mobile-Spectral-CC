@@ -32,6 +32,9 @@ class Experiment():
             if k == "model_parameter_overrides":
                 self.model_parameters.update(v)
                 self.cfg["model_parameters"] = self.model_parameters
+            elif k == "train_metrics":
+                self.train_metrics_enabled = v
+                self.cfg[k] = v
             else:
                 setattr(self, k, v)
                 self.cfg[k] = v
