@@ -564,3 +564,57 @@ class JointMSRGBAWBModel(BaseModel):
         dummy_rgb = torch.randn(1, 3, 512, 512, device=self.device)
         dummy_msi = torch.randn(1, self._spectral_input_channels(), 64, 64, device=self.device)
         return self._profile((dummy_rgb, dummy_msi), n_warmup, n_runs)
+
+
+class RGBSpectralPriorModel(BaseModel):
+    def __init__(self, model_name: str, model_parameters: dict):
+        model_parameters = dict(model_parameters)
+        self.spectral_loss_weight = model_parameters.pop("spectral_loss_weight", 0.1)
+        super(RGBSpectralPriorModel, self).__init__(model_name, model_parameters)
+        self.model_type = "RGB_SP"
+        self.spectral_criterion = torch.nn.L1Loss()
+
+    def train_step(self, data, compute_metrics=True):
+        self.optimizer.zero_grad(set_to_none=True)
+
+        rgb_image = self._move(data["rgb_image"])
+        ms_image = self._move(data["ms_image"])
+        gt_image = self._move(data["gt_image"])
+
+        with self._autocast():
+            pred_rgb, pred_ms = self.model(rgb_image)
+            image_loss = self.criterion(pred_rgb, gt_image)
+            ms_target = ms_image
+            if ms_target.shape[-2:] != pred_ms.shape[-2:]:
+                ms_target = torch.nn.functional.interpolate(ms_target, size=pred_ms.shape[-2:], mode="bilinear", align_corners=False)
+            spectral_loss = self.spectral_criterion(pred_ms, ms_target)
+            loss = image_loss + self.spectral_loss_weight * spectral_loss
+
+        backward_status = self.backward_pass(loss)
+        if not compute_metrics:
+            return loss.item(), None, backward_status
+
+        return loss.item(), self._metric_tensor(pred_rgb), backward_status
+
+    def eval_step(self, data, compute_metrics=True):
+        rgb_image = self._move(data["rgb_image"])
+        gt_image = self._move(data["gt_image"])
+
+        with self._autocast():
+            pred_rgb, _ = self.model(rgb_image)
+            loss = self.criterion(pred_rgb, gt_image)
+
+        if not compute_metrics:
+            return loss.item(), None
+
+        return loss.item(), self._metric_tensor(pred_rgb)
+
+    def inference_step(self, rgb_image):
+        rgb_image = self._move(rgb_image)
+        with self._autocast():
+            pred_rgb, _ = self.model(rgb_image)
+        return self._metric_tensor(pred_rgb).clamp(0, 1)
+
+    def profile(self, n_warmup=10, n_runs=100):
+        dummy_rgb = torch.randn(1, 3, 512, 512, device=self.device)
+        return self._profile((dummy_rgb,), n_warmup, n_runs)

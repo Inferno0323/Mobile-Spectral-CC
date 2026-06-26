@@ -9,7 +9,7 @@ import shutil
 import numpy as np
 import tqdm
 from datasets import RGBDataset, MSDataset, RGBMSDataset
-from core.model import IlluminantEstimationModel, JointAWBModel, MSIlluminantEstimationModel, JointMSRGBAWBModel
+from core.model import IlluminantEstimationModel, JointAWBModel, MSIlluminantEstimationModel, JointMSRGBAWBModel, RGBSpectralPriorModel
 from core.evaluator import Evaluator
 from core.logger import Logger
 from auxiliary.metrics import *
@@ -295,6 +295,8 @@ class Experiment():
             self.model = MSIlluminantEstimationModel(self.model_name, self.model_parameters)
         elif self.model_type == "J_MSI":
             self.model = JointMSRGBAWBModel(self.model_name, self.model_parameters)
+        elif self.model_type == "RGB_SP":
+            self.model = RGBSpectralPriorModel(self.model_name, self.model_parameters)
 
     def prepare_training(self):
         self.prepare_test()

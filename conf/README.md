@@ -26,7 +26,7 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `model_type` | str | Type of model: `"IE"` (Illuminant Estimation), `"MSIE"` (Multispectral IE), or `"J_MSI"` (Joint Multispectral Image-to-Image) |
+| `model_type` | str | Type of model: `"IE"` (Illuminant Estimation), `"MSIE"` (Multispectral IE), `"J"` (RGB image-to-image), `"J_MSI"` (RGB+MS image-to-image), or `"RGB_SP"` (RGB-only spectral-prior prototype trained with MS supervision) |
 | `model_name` | str | Name of the model architecture |
 | `model_parameters` | dict | Model-specific parameters |
 | `input_size` | int | Optional FC4 model parameter to downscale inputs before the backbone (for example `224`) |
@@ -131,6 +131,7 @@ tensorboard --logdir experiments
 | `SpectralLPIENet.py` | Spectral LPIENet | Joint image-to-image model with RGB+MS fusion |
 | `SpectralLPIENet_small.py` | Spectral LPIENet (small) | Lightweight version of SpectralLPIENet |
 | `SpectralCmKAN_light.py` | Spectral CmKAN (light) | Lightweight KAN-based spectral model |
+| `RGBSpectralPrior.py` | RGB Spectral Prior | Prototype RGB-only enhancement model with auxiliary multispectral reconstruction during training |
 
 ---
 
