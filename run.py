@@ -28,6 +28,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-batch-size", type=int, default=None, help="Override the training batch size")
     parser.add_argument("--val-batch-size", type=int, default=None, help="Override the validation batch size")
     parser.add_argument("--test-batch-size", type=int, default=None, help="Override the test batch size")
+    parser.add_argument("--prefetch-factor", type=int, default=None, help="Override DataLoader prefetch batches per worker")
 
     opt = parser.parse_args()
     # define the optional args
@@ -41,7 +42,7 @@ if __name__ == "__main__":
             "non_blocking": True,
             "profile_model": False,
             "persistent_workers": True,
-            "prefetch_factor": 4,
+            "prefetch_factor": 2,
         })
     if opt.device is not None:
         args["device"] = parse_device_arg(opt.device)
@@ -59,6 +60,8 @@ if __name__ == "__main__":
         args["val_batch_size"] = opt.val_batch_size
     if opt.test_batch_size is not None:
         args["test_batch_size"] = opt.test_batch_size
+    if opt.prefetch_factor is not None:
+        args["prefetch_factor"] = opt.prefetch_factor
     
     # create the runner
     r = Runner(cfg=opt.config_file, **args)
