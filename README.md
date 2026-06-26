@@ -56,6 +56,24 @@ To run an experiment:
 python run.py path/to/config/file.py
 ```
 
+### Spectral image viewer
+
+To inspect a multispectral `.h5` image, render channel thumbnails, spectral
+profile lines, and a per-channel statistics table:
+
+```bash
+python tools/view_spectral_image.py \
+  data/MobileSpectralCCDataset/SPECTRICITY_S1/imgs/SC209_K_ILL000.h5 \
+  --output spectral_view.png \
+  --stats-output spectral_stats.csv \
+  --point 128,128 \
+  --roi 96,96,64,64
+```
+
+The viewer reads the dataset's `spec`/`data` array and `wvs` wavelengths, handles
+channel-first `(C, H, W)` spectral images by default, and can open a Matplotlib
+window when `--output` is omitted.
+
 
 ## 📚 Citation
 If you use this code or dataset in your research, please cite our paper:
