@@ -102,10 +102,12 @@ class BaseDataset(Dataset):
 class RGBDataset(BaseDataset):
     def __init__(self, dataset_root, files_list, rgb_camera, gt_type, 
                  is_train=True, seed=42,
-                 ssf_path=None, illuminants_path=None, spectral_datasets=None):
+                 ssf_path=None, illuminants_path=None, spectral_datasets=None,
+                 load_gt=True):
         super(RGBDataset, self).__init__(dataset_root, files_list, is_train=is_train, seed=seed)
         self.rgb_camera = rgb_camera
         self.gt_type = gt_type
+        self.load_gt = load_gt
         
         # Check if pre-generated images exist
         sample_file = self.files_list[0] if len(self.files_list) > 0 else None
@@ -145,17 +147,18 @@ class RGBDataset(BaseDataset):
             
             rgb_image, metadata = self.renderer.render_rgb(scene_name, dataset_code, illuminant_idx)
             
-            # Generate GT
-            if self.gt_type == "raw":
-                gt_image = self.renderer.render_gt_rgb(scene_name, dataset_code)
-            else:
-                # For xyz/srgb GT, we still need to load from pre-generated files
-                gt_path = os.path.join(self.dataset_root, "GT", self.gt_type + "_scenes", f"{scene_name}_{dataset_code}.png")
-                if os.path.exists(gt_path):
-                    gt_image = load_rgb_image(path=gt_path, bit_depth=12)
-                else:
-                    # Fall back to raw GT
+            if self.load_gt:
+                # Generate GT
+                if self.gt_type == "raw":
                     gt_image = self.renderer.render_gt_rgb(scene_name, dataset_code)
+                else:
+                    # For xyz/srgb GT, we still need to load from pre-generated files
+                    gt_path = os.path.join(self.dataset_root, "GT", self.gt_type + "_scenes", f"{scene_name}_{dataset_code}.png")
+                    if os.path.exists(gt_path):
+                        gt_image = load_rgb_image(path=gt_path, bit_depth=12)
+                    else:
+                        # Fall back to raw GT
+                        gt_image = self.renderer.render_gt_rgb(scene_name, dataset_code)
             
             # Update file_name to include illuminant info
             file_name = f"{scene_name}_{dataset_code}_ILL{illuminant_idx:03d}"
@@ -170,18 +173,20 @@ class RGBDataset(BaseDataset):
             # Load metadata
             metadata = load_metadata(path=os.path.join(self.dataset_root, self.rgb_camera, "metadata", ill_name+".json"))
 
-            # Load GT
-            if self.gt_type == "raw":
-                gt_image = load_rgb_image(os.path.join(self.dataset_root, self.rgb_camera, "gt_raw", scene_name_full+".png"), bit_depth=12)
-            else:
-                gt_image = load_rgb_image(path=os.path.join(self.dataset_root, "GT", self.gt_type+"_scenes", scene_name_full+".png"), bit_depth=12)
+            if self.load_gt:
+                # Load GT
+                if self.gt_type == "raw":
+                    gt_image = load_rgb_image(os.path.join(self.dataset_root, self.rgb_camera, "gt_raw", scene_name_full+".png"), bit_depth=12)
+                else:
+                    gt_image = load_rgb_image(path=os.path.join(self.dataset_root, "GT", self.gt_type+"_scenes", scene_name_full+".png"), bit_depth=12)
 
         sample = {
             "file_name": file_name,
             "rgb_image": rgb_image,
-            "gt_image": gt_image,
             "metadata": metadata
         }
+        if self.load_gt:
+            sample["gt_image"] = gt_image
 
         return sample
 

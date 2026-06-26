@@ -29,8 +29,12 @@ class Experiment():
         
         # Override config parameters with kwargs
         for k, v in kwargs.items():
-            setattr(self, k, v)
-            self.cfg[k] = v
+            if k == "model_parameter_overrides":
+                self.model_parameters.update(v)
+                self.cfg["model_parameters"] = self.model_parameters
+            else:
+                setattr(self, k, v)
+                self.cfg[k] = v
 
         self.prepare_directory()
 
@@ -223,9 +227,10 @@ class Experiment():
 
     def prepare_data(self):
         pin_memory = self.device.type == "cuda"
+        train_load_gt = self.train_metrics_enabled or self.model_type != "IE"
         if self.data_type == "RGB":
             self.train_dataset = RGBDataset(self.dataset_root, self.train_list, self.rgb_camera, self.gt_type,
-                                            is_train=True, seed=self.seed)
+                                            is_train=True, seed=self.seed, load_gt=train_load_gt)
             self.val_dataset = RGBDataset(self.dataset_root, self.val_list, self.rgb_camera, self.gt_type,
                                           is_train=False, seed=self.seed)
             self.test_dataset = RGBDataset(self.dataset_root, self.test_list, self.rgb_camera, self.gt_type,

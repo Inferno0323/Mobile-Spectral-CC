@@ -114,7 +114,7 @@ class SqueezeNetLoader:
 
 class FC4(torch.nn.Module):
 
-    def __init__(self, squeezenet_version: float = 1.1, confidence_weighted_pooling=True, pretrained=True, inp_size=None, resize=True):
+    def __init__(self, squeezenet_version: float = 1.1, confidence_weighted_pooling=True, pretrained=True, inp_size=None, resize=True, input_size=None):
         super().__init__()
 
         # SqueezeNet backbone (conv1-fire8) for extracting semantic features
@@ -136,6 +136,7 @@ class FC4(torch.nn.Module):
         self.confidence_weighted_pooling = confidence_weighted_pooling
 
         self.resize = resize
+        self.input_size = input_size
 
     def forward(self, x: Tensor) -> Union[tuple, Tensor]:
         """
@@ -145,7 +146,9 @@ class FC4(torch.nn.Module):
         and the confidence weights are returned as well (used for visualizations)
         """
 
-        if self.resize and (x.shape[2] < 224 or x.shape[3] < 224):
+        if self.input_size is not None:
+            x = nn.functional.interpolate(x, size=(self.input_size, self.input_size), mode='bilinear', align_corners=False)
+        elif self.resize and (x.shape[2] < 224 or x.shape[3] < 224):
             # if shape is lower than 224x224, resize to 224x224
             x = nn.functional.interpolate(x, size=(224, 224), mode='bilinear', align_corners=False)
 

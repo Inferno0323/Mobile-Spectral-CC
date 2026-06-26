@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import cv2
 import json
 import os
+from functools import lru_cache
 
 import ipdb
 
@@ -162,6 +163,7 @@ def load_rgb_image(path, bit_depth=12):
     return img
 
 
+@lru_cache(maxsize=256)
 def load_metadata(path):
     with open(path, "r") as f:
         metadata = json.load(f)

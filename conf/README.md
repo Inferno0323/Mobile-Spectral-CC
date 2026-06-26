@@ -29,6 +29,7 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 | `model_type` | str | Type of model: `"IE"` (Illuminant Estimation), `"MSIE"` (Multispectral IE), or `"J_MSI"` (Joint Multispectral Image-to-Image) |
 | `model_name` | str | Name of the model architecture |
 | `model_parameters` | dict | Model-specific parameters |
+| `input_size` | int | Optional FC4 model parameter to downscale inputs before the backbone (for example `224`) |
 
 ### Dataset Settings
 
