@@ -3,7 +3,6 @@ import torch.nn.functional as F
 import gdown
 import os
 
-import ipdb
 
 INPUT_SCALED_INT = 1
 INPUT_EQUALIZED_INT = 2
@@ -353,7 +352,6 @@ class QuasiUnsupervised(BaseCCNet):
         if not os.path.exists(os.path.join("assets", "pretrained", model+".pt")):
             os.makedirs(os.path.join("assets", "pretrained"), exist_ok=True)
             gdown.download(self.model_urls[model], output=os.path.join("assets", "pretrained", model+".pt"), fuzzy=True)
-        # ipdb.set_trace()
         self.load_state_dict(torch.load(os.path.join("assets", "pretrained", model+".pt"), weights_only=False)["model"])
 
     def forward(self, rgb):

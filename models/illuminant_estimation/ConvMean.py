@@ -6,7 +6,6 @@ from typing import Optional
 from torch.nn.common_types import _size_any_t
 from torch.nn.modules import utils
 
-import ipdb
 
 class AdaLearnLPP3(nn.Module):
     # AdaptiveLearnableLPPool2d

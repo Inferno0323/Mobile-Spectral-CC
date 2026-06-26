@@ -11,7 +11,6 @@ from scipy.ndimage import zoom
 from auxiliary.color_utils import CCT_Robertson 
 
 
-import ipdb
 
 D65 = SDS_ILLUMINANTS['D65'].align(SpectralShape(400, 700, 10)).values
 E = SDS_ILLUMINANTS['E'].align(SpectralShape(400, 700, 10)).values

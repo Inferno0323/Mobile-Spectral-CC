@@ -1,0 +1,63 @@
+cfg = dict(
+    exp_name = "CanonR5_RGBSpectralPrior",
+
+    train = True,
+    test = True,
+
+    # RGB-only inference model trained with auxiliary multispectral supervision.
+    model_type = "RGB_SP",
+    model_name = "RGBSpectralPriorNet",
+    model_parameters = dict(
+        rgb_input_channels = 3,
+        output_channels = 3,
+        spectral_output_channels = 15,
+        base_channels = 32,
+        num_heads = 4,
+        spectral_size = 64,
+        spectral_loss_weight = 0.1,
+    ),
+
+    data_type = "RGB+MS",
+    dataset_root = "./data/MobileSpectralCCDataset/",
+    rgb_camera = "CANON_R5",
+    gt_type = "xyz",
+    spectral_camera = "SPECTRICITY_S1",
+    train_list = "data/data_splits/scene_wise/train.txt",
+    val_list = "data/data_splits/scene_wise/val.txt",
+    test_list = "data/data_splits/scene_wise/test.txt",
+
+    seed = 42,
+    device = 0,
+    n_epochs = 300,
+    n_workers = 8,
+    lr = 4e-4,
+    train_batch_size = 8,
+    val_batch_size = 8,
+    test_batch_size = 1,
+    early_stop = 5,
+    criterion = "deltaE76Loss",
+    metrics = ["ReproductionError", "deltaE00", "PSNR"],
+
+    exp_dir = None,
+    train_checkpoint = None,
+    pretrained_weights = None,
+
+    deterministic = False,
+    amp = True,
+    tf32 = True,
+    channels_last = True,
+    non_blocking = True,
+    profile_model = False,
+    persistent_workers = True,
+    prefetch_factor = 2,
+    data_parallel = False,
+    check_gradients = False,
+    plot_metrics = False,
+    tensorboard = True,
+    tensorboard_images = True,
+    tensorboard_image_interval = 5,
+
+    val_viz_list = ["SC002_B_ILL000", "SC076_B_ILL099"],
+    test_viz_list = ['SC001_B_ILL036', 'SC002_K_ILL045'],
+    test_viz_de00_range = None,
+)

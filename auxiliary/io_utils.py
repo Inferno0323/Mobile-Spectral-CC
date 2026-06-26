@@ -6,8 +6,11 @@ import torch.nn.functional as F
 import cv2
 import json
 import os
+from functools import lru_cache
 
-import ipdb
+
+cv2.setNumThreads(0)
+cv2.ocl.setUseOpenCL(False)
 
 # Default path for Zurich homographies
 DEFAULT_HOMOGRAPHIES_PATH = "data/Zurich_homographies(512x512)"
@@ -153,15 +156,18 @@ def save_h5(path, spec, wvs):
 
     hf.close()
 
-def load_rgb_image(path, bit_depth=12):
+def load_rgb_image(path, bit_depth=12, output_size=None):
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if output_size is not None:
+        img = cv2.resize(img, (output_size, output_size), interpolation=cv2.INTER_AREA)
     img = img.astype(np.float32) / (2**bit_depth - 1)
     img =img.transpose(2,0,1) # HWC to CHW
 
     return img
 
 
+@lru_cache(maxsize=256)
 def load_metadata(path):
     with open(path, "r") as f:
         metadata = json.load(f)

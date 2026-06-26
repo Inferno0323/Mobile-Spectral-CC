@@ -21,6 +21,9 @@ class Evaluator():
             val = self.metrics[k](pred, gt)
             self.iter_values[k] += val
         self.iter_values["Loss"].append(loss)
+
+    def update_loss(self, loss):
+        self.iter_values["Loss"].append(loss)
         
     def aggregate(self):
         for k in self.iter_values.keys():

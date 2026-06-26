@@ -1,15 +1,7 @@
 import os
 import torch
-import numpy as np
 import tqdm
 from core.experiment import Experiment
-from core.logger import Logger
-from core.evaluator import Evaluator
-
-
-import pandas as pd
-
-import ipdb
 
 
 class Runner():
@@ -24,29 +16,53 @@ class Runner():
             train_loop = tqdm.tqdm(self.experiment.train_loader, desc=f"Epoch {epoch+1}/{self.experiment.n_epochs} - Training")
             for i, data in enumerate(train_loop):
                 loss = 0
-                loss, pred, backward_status = self.experiment.model.train_step(data)
+                loss, pred, backward_status = self.experiment.model.train_step(
+                    data,
+                    compute_metrics=self.experiment.train_metrics_enabled,
+                )
                 if backward_status != 0:
                     self.experiment.logger.log_gradient_error(epoch=epoch, iter=i)           
-                self.experiment.train_metrics.update(pred, data["gt_image"].to(self.experiment.device), loss)
+                if self.experiment.train_metrics_enabled:
+                    self.experiment.train_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
+                else:
+                    self.experiment.train_metrics.update_loss(loss)
                 train_loop.set_postfix(loss=loss)
 
-            self.experiment.model.eval()
-            val_loop = tqdm.tqdm(self.experiment.val_loader, desc=f"Epoch {epoch+1}/{self.experiment.n_epochs} - Validation")
-            with torch.no_grad():
-                for i, data in enumerate(val_loop):
-                    loss = 0
-                    loss, pred = self.experiment.model.eval_step(data)
-                    self.experiment.val_metrics.update(pred, data["gt_image"].to(self.experiment.device), loss)
+            should_validate = (epoch + 1) % self.experiment.val_interval == 0 or epoch == self.experiment.starting_epoch
+            if should_validate:
+                self.experiment.model.eval()
+                val_loop = tqdm.tqdm(self.experiment.val_loader, desc=f"Epoch {epoch+1}/{self.experiment.n_epochs} - Validation")
+                with torch.no_grad():
+                    for i, data in enumerate(val_loop):
+                        loss = 0
+                        loss, pred = self.experiment.model.eval_step(
+                            data,
+                            compute_metrics=self.experiment.val_metrics_enabled,
+                        )
+                        if self.experiment.val_metrics_enabled:
+                            self.experiment.val_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
+                            if (
+                                self.experiment.tensorboard_images
+                                and i == 0
+                                and (epoch + 1) % self.experiment.tensorboard_image_interval == 0
+                            ):
+                                self.experiment.logger.log_tensorboard_images("val/pred", pred, epoch + 1)
+                                self.experiment.logger.log_tensorboard_images("val/gt", data["gt_image"], epoch + 1)
+                                if "rgb_image" in data:
+                                    self.experiment.logger.log_tensorboard_images("val/rgb_input", data["rgb_image"], epoch + 1)
+                        else:
+                            self.experiment.val_metrics.update_loss(loss)
 
-                    if self.experiment.val_viz_list and any([x in self.experiment.val_viz_list for x in data["file_name"]]):
-                        idx = [x in self.experiment.val_viz_list for x in data["file_name"]].index(True)
-                        de00 = self.experiment.val_metrics.iter_values["deltaE00"][-pred.shape[0]:][idx]
-                        self.experiment.logger.save_viz(pred[idx].detach().cpu(), data["gt_image"][idx].detach().cpu(), os.path.join(self.experiment.exp_dir, "val_viz", f"ep{(epoch+1):03d}_"+data["file_name"][idx]+f"(dE00={de00:.2f}).png"))
+                        if self.experiment.val_metrics_enabled and self.experiment.val_viz_list and any([x in self.experiment.val_viz_list for x in data["file_name"]]):
+                            idx = [x in self.experiment.val_viz_list for x in data["file_name"]].index(True)
+                            de00 = self.experiment.val_metrics.iter_values["deltaE00"][-pred.shape[0]:][idx]
+                            self.experiment.logger.save_viz(pred[idx].detach().cpu(), data["gt_image"][idx].detach().cpu(), os.path.join(self.experiment.exp_dir, "val_viz", f"ep{(epoch+1):03d}_"+data["file_name"][idx]+f"(dE00={de00:.2f}).png"))
 
-                    val_loop.set_postfix(loss=loss)
+                        val_loop.set_postfix(loss=loss)
 
             self.experiment.train_metrics.aggregate()
-            self.experiment.val_metrics.aggregate()
+            if should_validate:
+                self.experiment.val_metrics.aggregate()
 
 
             self.experiment.logger.log_epoch_end(epoch, self.experiment.train_metrics, self.experiment.val_metrics)
@@ -54,7 +70,7 @@ class Runner():
             # Early stopping based on validation loss
             val_loss = self.experiment.val_metrics.get_last(stat="mean")["Loss"]
             
-            if self.experiment.early_stop is not None: 
+            if should_validate and self.experiment.early_stop is not None:
                 if val_loss < self.experiment.best_loss:
                     self.experiment.best_loss = val_loss
                     self.experiment.early_stop_counter = 0
@@ -87,7 +103,7 @@ class Runner():
                 loss = 0
                 loss, pred = self.experiment.model.eval_step(data)
                                 
-                self.experiment.test_metrics.update(pred, data["gt_image"].to(self.experiment.device), loss)
+                self.experiment.test_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
 
                 # Get the metrics for current batch (last batch_size values)
                 batch_size = pred.shape[0]
@@ -105,6 +121,12 @@ class Runner():
                     idx = [x in self.experiment.test_viz_list for x in data["file_name"]].index(True)
                     de00 = self.experiment.test_metrics.iter_values["deltaE00"][-batch_size:][idx]
                     self.experiment.logger.save_viz(pred[idx].detach().cpu(), data["gt_image"][idx].detach().cpu(), os.path.join(self.experiment.exp_dir, "test_viz", data["file_name"][idx]+f"(dE00={de00:.2f}).png"))
+
+                if self.experiment.tensorboard_images and i == 0:
+                    self.experiment.logger.log_tensorboard_images("test/pred", pred, 0)
+                    self.experiment.logger.log_tensorboard_images("test/gt", data["gt_image"], 0)
+                    if "rgb_image" in data:
+                        self.experiment.logger.log_tensorboard_images("test/rgb_input", data["rgb_image"], 0)
 
                 # Save visualizations for images with deltaE00 in specified range
                 if self.experiment.test_viz_de00_range is not None:
@@ -134,8 +156,11 @@ class Runner():
         self.experiment.logger.log_test_result(self.experiment.test_metrics)
 
     def run(self):
-        self.experiment.logger.log_experiment_start(self.experiment)
-        if self.experiment.train:
-            self.train()
-        if self.experiment.test:
-            self.test()
+        try:
+            self.experiment.logger.log_experiment_start(self.experiment)
+            if self.experiment.train:
+                self.train()
+            if self.experiment.test:
+                self.test()
+        finally:
+            self.experiment.logger.close()

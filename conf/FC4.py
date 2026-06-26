@@ -10,7 +10,8 @@ cfg = dict(
     model_parameters = dict(
         squeezenet_version = 1.1,
         pretrained = True,
-        confidence_weighted_pooling = True), # additional model parameters
+        confidence_weighted_pooling = True,
+        input_size = 224), # additional model parameters
 
     # Dataset settings
     data_type = "RGB", # "RGB" or "MS" or "RGB+MS"
@@ -26,9 +27,9 @@ cfg = dict(
     seed = 42,
     device = 0, # choose GPU id (-1 for CPU)
     n_epochs = 300,
-    n_workers = 16,
+    n_workers = 8,
     lr = 4e-4,
-    train_batch_size = 16,
+    train_batch_size = 128,
     val_batch_size = 16,
     test_batch_size = 1,
     early_stop = 5,
@@ -40,6 +41,27 @@ cfg = dict(
 
     exp_dir = None, # will be set automatically if None
     train_checkpoint= None, # path to checkpoint to resume training (default: None)
+
+    # Throughput-oriented defaults for FC4. Validation/test image metrics are
+    # still available, but training and routine validation use loss-only paths.
+    deterministic = False,
+    amp = True,
+    tf32 = True,
+    channels_last = True,
+    non_blocking = True,
+    profile_model = False,
+    persistent_workers = True,
+    prefetch_factor = 2,
+    train_metrics = False,
+    val_metrics = False,
+    val_interval = 5,
+    cache_rgb = True,
+    data_parallel = False,
+    check_gradients = False,
+    plot_metrics = False,
+    tensorboard = True,
+    tensorboard_images = True,
+    tensorboard_image_interval = 5,
         
     pretrained_weights = None, 
     # pretrained_weights = "pretrained/CanonR5/FC4.pth", # path to pretrained weight for testing

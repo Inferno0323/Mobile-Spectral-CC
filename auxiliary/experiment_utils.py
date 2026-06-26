@@ -6,9 +6,8 @@ import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 import random
 import re
-import ipdb
 
-def seed_everything(seed):
+def seed_everything(seed, deterministic=True):
     """
     Makes experiments deterministic
     """
@@ -20,10 +19,10 @@ def seed_everything(seed):
     random.seed(seed)
     np.random.seed(seed)
     
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = deterministic
+    torch.backends.cudnn.benchmark = not deterministic
 
-    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.use_deterministic_algorithms(deterministic, warn_only=True)
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     # torch.utils.deterministic.fill_uninitialized_memory_(True)
 

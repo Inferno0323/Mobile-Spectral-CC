@@ -40,9 +40,10 @@ We build a physically grounded synthetic dataset based on two publicly available
 
 To mimic geometric inconsistencies typical of dual-sensor systems, we further create a misaligned version of the dataset by introducing spatial offsets between RGB–MS image pairs. Realistic warping transformations are estimated from the <a href="https://aiff22.github.io/pynet.html">Zurich dataset</a> and applied to our synthesized data.
 
-The dataset can be downloaded from here <a href="https://huggingface.co/datasets/LucaCogo/MobileSpectralCCDataset">here</a> and placed in `data/MobileSpectralCCDataset/`.
+This branch intentionally does not bundle data files. Create a local `data/` directory and place your own phone captures, hyperspectral reflectance data, or downloaded/generated datasets there.
+
+The original dataset can be downloaded from <a href="https://huggingface.co/datasets/LucaCogo/MobileSpectralCCDataset">here</a> and placed in `data/MobileSpectralCCDataset/` if needed.
 Alternatively, you can generate it yourself by using the script `scripts/generate_dataset.py`, downloading the reflectance images of <a href="https://drive.google.com/file/d/16u0dGcZSwFqi5bhYRlSr9bNyc3oCPqi8/view?usp=sharing">KAUST</a> and <a href="https://drive.google.com/file/d/1AFjTNVmEuhKXZ8QgmSLaYADSP3q1L7HF/view?usp=sharing">BJTU-UVA</a>. </br>
-More details on dataset structure and generation can be found in the `data/README.md` file.
 
 ## ⚙️ Requirements and Usage
 

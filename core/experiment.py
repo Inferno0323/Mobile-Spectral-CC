@@ -7,14 +7,11 @@ from auxiliary.experiment_utils import seed_everything
 from torch.utils.data import DataLoader
 import shutil
 import numpy as np
-import tqdm
 from datasets import RGBDataset, MSDataset, RGBMSDataset
-from core.model import IlluminantEstimationModel, JointAWBModel, MSIlluminantEstimationModel, JointMSRGBAWBModel
+from core.model import IlluminantEstimationModel, JointAWBModel, MSIlluminantEstimationModel, JointMSRGBAWBModel, RGBSpectralPriorModel
 from core.evaluator import Evaluator
 from core.logger import Logger
-from auxiliary.metrics import *
 
-import ipdb
 
 class Experiment():
 
@@ -29,12 +26,23 @@ class Experiment():
         
         # Override config parameters with kwargs
         for k, v in kwargs.items():
-            setattr(self, k, v)
-            self.cfg[k] = v
+            if k == "model_parameter_overrides":
+                self.model_parameters.update(v)
+                self.cfg["model_parameters"] = self.model_parameters
+            elif k == "train_metrics":
+                self.train_metrics_enabled = v
+                self.cfg[k] = v
+            elif k == "val_metrics":
+                self.val_metrics_enabled = v
+                self.cfg[k] = v
+            else:
+                setattr(self, k, v)
+                self.cfg[k] = v
 
         self.prepare_directory()
 
-        seed_everything(self.seed)
+        seed_everything(self.seed, deterministic=self.deterministic)
+        self.configure_torch_runtime()
 
         self.prepare_data() 
         self.prepare_model()
@@ -100,9 +108,35 @@ class Experiment():
         self.exp_dir = cfg["exp_dir"]
         self.train_checkpoint = cfg.get("train_checkpoint", None)
         self.pretrained_weights = cfg.get("pretrained_weights", None)
+        self.deterministic = cfg.get("deterministic", True)
+        self.amp = cfg.get("amp", False)
+        self.amp_dtype = cfg.get("amp_dtype", "float16")
+        self.tf32 = cfg.get("tf32", False)
+        self.channels_last = cfg.get("channels_last", False)
+        self.non_blocking = cfg.get("non_blocking", False)
+        self.profile_model = cfg.get("profile_model", True)
+        self.persistent_workers = cfg.get("persistent_workers", False)
+        self.prefetch_factor = cfg.get("prefetch_factor", None)
+        self.train_metrics_enabled = cfg.get("train_metrics", True)
+        self.val_metrics_enabled = cfg.get("val_metrics", True)
+        self.val_interval = cfg.get("val_interval", 1)
+        self.cache_rgb = cfg.get("cache_rgb", False)
+        self.cache_dir = cfg.get("cache_dir", None)
+        self.check_gradients = cfg.get("check_gradients", True)
+        self.plot_metrics_enabled = cfg.get("plot_metrics", True)
+        self.tensorboard = cfg.get("tensorboard", False)
+        self.tensorboard_images = cfg.get("tensorboard_images", True)
+        self.tensorboard_image_interval = cfg.get("tensorboard_image_interval", 5)
 
     def to_dict(self):
         return self.cfg
+
+    def configure_torch_runtime(self):
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = self.tf32
+            torch.backends.cudnn.allow_tf32 = self.tf32
+            if self.tf32 and hasattr(torch, "set_float32_matmul_precision"):
+                torch.set_float32_matmul_precision("high")
 
     @staticmethod
     def resolve_device_config(device_config, configured_device_ids=None, data_parallel=None):
@@ -205,11 +239,17 @@ class Experiment():
 
     def prepare_data(self):
         pin_memory = self.device.type == "cuda"
+        train_load_gt = self.train_metrics_enabled or self.model_type != "IE"
+        val_load_gt = self.val_metrics_enabled or self.model_type != "IE"
+        train_input_size = None if train_load_gt else self.model_parameters.get("input_size", None)
+        val_input_size = None if val_load_gt else self.model_parameters.get("input_size", None)
         if self.data_type == "RGB":
             self.train_dataset = RGBDataset(self.dataset_root, self.train_list, self.rgb_camera, self.gt_type,
-                                            is_train=True, seed=self.seed)
+                                            is_train=True, seed=self.seed, load_gt=train_load_gt, input_size=train_input_size,
+                                            cache_rgb=self.cache_rgb and not train_load_gt, cache_dir=self.cache_dir)
             self.val_dataset = RGBDataset(self.dataset_root, self.val_list, self.rgb_camera, self.gt_type,
-                                          is_train=False, seed=self.seed)
+                                          is_train=False, seed=self.seed, load_gt=val_load_gt, input_size=val_input_size,
+                                          cache_rgb=self.cache_rgb and not val_load_gt, cache_dir=self.cache_dir)
             self.test_dataset = RGBDataset(self.dataset_root, self.test_list, self.rgb_camera, self.gt_type,
                                            is_train=False, seed=self.seed)
         elif self.data_type == "MS":
@@ -229,11 +269,19 @@ class Experiment():
         
         g = torch.Generator()
         g.manual_seed(self.seed)
+        loader_kwargs = dict(
+            num_workers=self.n_workers,
+            pin_memory=pin_memory,
+            persistent_workers=self.persistent_workers and self.n_workers > 0,
+        )
+        if self.prefetch_factor is not None and self.n_workers > 0:
+            loader_kwargs["prefetch_factor"] = self.prefetch_factor
+
         if self.train:
-            self.train_loader = DataLoader(self.train_dataset, batch_size=self.train_batch_size, shuffle=True, num_workers=self.n_workers, pin_memory=pin_memory, generator=g)
-            self.val_loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, shuffle=False, num_workers=self.n_workers, pin_memory=pin_memory)
+            self.train_loader = DataLoader(self.train_dataset, batch_size=self.train_batch_size, shuffle=True, generator=g, **loader_kwargs)
+            self.val_loader = DataLoader(self.val_dataset, batch_size=self.val_batch_size, shuffle=False, **loader_kwargs)
         if self.test:
-            self.test_loader = DataLoader(self.test_dataset, batch_size=self.test_batch_size, shuffle=False, num_workers=self.n_workers, pin_memory=pin_memory)
+            self.test_loader = DataLoader(self.test_dataset, batch_size=self.test_batch_size, shuffle=False, **loader_kwargs)
 
     def prepare_model(self):
         if self.model_type == "IE":
@@ -244,6 +292,8 @@ class Experiment():
             self.model = MSIlluminantEstimationModel(self.model_name, self.model_parameters)
         elif self.model_type == "J_MSI":
             self.model = JointMSRGBAWBModel(self.model_name, self.model_parameters)
+        elif self.model_type == "RGB_SP":
+            self.model = RGBSpectralPriorModel(self.model_name, self.model_parameters)
 
     def prepare_training(self):
         self.prepare_test()
@@ -254,14 +304,21 @@ class Experiment():
         else:
             if self.pretrained_weights is not None:
                 self.model.load(self.pretrained_weights)
-            self.train_metrics = Evaluator(self.metrics)
-            self.val_metrics = Evaluator(self.metrics)
+            self.train_metrics = Evaluator(self.metrics if self.train_metrics_enabled else [])
+            self.val_metrics = Evaluator(self.metrics if self.val_metrics_enabled else [])
             self.best_loss = np.inf
             self.early_stop_counter = 0
             self.starting_epoch = 0
 
     def prepare_test(self):
         self.model.to(self.device, device_ids=self.device_ids)
+        self.model.configure_performance(
+            amp=self.amp,
+            amp_dtype=self.amp_dtype,
+            channels_last=self.channels_last,
+            non_blocking=self.non_blocking,
+            check_gradients=self.check_gradients,
+        )
         self.model.init_loss_criterion(self.criterion)
         if self.pretrained_weights is not None:
             self.model.load(self.pretrained_weights)

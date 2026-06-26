@@ -1,5 +1,7 @@
 import os
 import sys
+import json
+import hashlib
 import numpy as np
 import h5py
 import cv2
@@ -12,7 +14,6 @@ from auxiliary.color_utils import XYZ_CMF_SPECTRUM, E_SPECTRUM, D65_SPECTRUM
 
 import time
 
-import ipdb
 
 
 # Default paths for on-the-fly generation
@@ -31,6 +32,7 @@ class BaseDataset(Dataset):
         super(BaseDataset, self).__init__()
 
         self.dataset_root = dataset_root
+        self.files_list_path = files_list
         self.files_list = self.load_scenes(files_list)
         self.is_train = is_train
         self.seed = seed
@@ -102,10 +104,17 @@ class BaseDataset(Dataset):
 class RGBDataset(BaseDataset):
     def __init__(self, dataset_root, files_list, rgb_camera, gt_type, 
                  is_train=True, seed=42,
-                 ssf_path=None, illuminants_path=None, spectral_datasets=None):
+                 ssf_path=None, illuminants_path=None, spectral_datasets=None,
+                 load_gt=True, input_size=None, cache_rgb=False, cache_dir=None):
         super(RGBDataset, self).__init__(dataset_root, files_list, is_train=is_train, seed=seed)
         self.rgb_camera = rgb_camera
         self.gt_type = gt_type
+        self.load_gt = load_gt
+        self.input_size = input_size
+        self.cache_rgb = cache_rgb
+        self.cache_dir = cache_dir
+        self._cached_rgb = None
+        self._cached_illum = None
         
         # Check if pre-generated images exist
         sample_file = self.files_list[0] if len(self.files_list) > 0 else None
@@ -128,9 +137,94 @@ class RGBDataset(BaseDataset):
                 illuminants_path=illuminants_path
             )
             print(f"[RGBDataset] On-the-fly generation enabled for camera {rgb_camera}")
+        elif self.cache_rgb and not self.load_gt and self.input_size is not None:
+            self._setup_fast_cache()
+
+    def _cache_key(self):
+        files_digest = hashlib.sha1("\n".join(self.files_list).encode("utf-8")).hexdigest()[:16]
+        return f"{self.rgb_camera}_{self.input_size}_{files_digest}"
+
+    def _setup_fast_cache(self):
+        cache_root = self.cache_dir or os.path.join(".cache", "rgb_fast")
+        cache_path = os.path.join(cache_root, self._cache_key())
+        os.makedirs(cache_path, exist_ok=True)
+
+        metadata_path = os.path.join(cache_path, "metadata.json")
+        rgb_path = os.path.join(cache_path, "rgb_float16.dat")
+        illum_path = os.path.join(cache_path, "illuminants_float32.dat")
+        expected_metadata = {
+            "rgb_camera": self.rgb_camera,
+            "input_size": self.input_size,
+            "length": len(self.files_list),
+            "files_digest": self._cache_key().split("_")[-1],
+            "dtype": "float16",
+            "shape": [len(self.files_list), 3, self.input_size, self.input_size],
+        }
+
+        cache_ready = False
+        if os.path.exists(metadata_path) and os.path.exists(rgb_path) and os.path.exists(illum_path):
+            with open(metadata_path, "r") as f:
+                cache_ready = json.load(f) == expected_metadata
+
+        if not cache_ready:
+            print(f"[RGBDataset] Building fast RGB cache at {cache_path}")
+            rgb_cache = np.memmap(
+                rgb_path,
+                dtype=np.float16,
+                mode="w+",
+                shape=tuple(expected_metadata["shape"]),
+            )
+            illum_cache = np.memmap(
+                illum_path,
+                dtype=np.float32,
+                mode="w+",
+                shape=(len(self.files_list), 3),
+            )
+
+            for idx, file_name in enumerate(self.files_list):
+                ill_name = "ILL" + file_name.split("_ILL")[1]
+                rgb_cache[idx] = load_rgb_image(
+                    path=os.path.join(self.dataset_root, self.rgb_camera, "imgs", file_name + ".png"),
+                    bit_depth=12,
+                    output_size=self.input_size,
+                ).astype(np.float16)
+                illum_cache[idx] = load_metadata(
+                    os.path.join(self.dataset_root, self.rgb_camera, "metadata", ill_name + ".json")
+                )["illuminant_rgb"]
+
+                if (idx + 1) % 1000 == 0 or idx + 1 == len(self.files_list):
+                    print(f"[RGBDataset] Cached {idx + 1}/{len(self.files_list)} RGB samples")
+
+            rgb_cache.flush()
+            illum_cache.flush()
+            with open(metadata_path, "w") as f:
+                json.dump(expected_metadata, f)
+
+        self._cached_rgb = np.memmap(
+            rgb_path,
+            dtype=np.float16,
+            mode="r+",
+            shape=tuple(expected_metadata["shape"]),
+        )
+        self._cached_illum = np.memmap(
+            illum_path,
+            dtype=np.float32,
+            mode="r+",
+            shape=(len(self.files_list), 3),
+        )
+        print(f"[RGBDataset] Using fast RGB cache at {cache_path}")
 
     def __getitem__(self, idx):
         file_name = self.files_list[idx]
+
+        if self._cached_rgb is not None:
+            return {
+                "file_name": file_name,
+                "rgb_image": np.asarray(self._cached_rgb[idx], dtype=np.float32),
+                "metadata": {
+                    "illuminant_rgb": np.asarray(self._cached_illum[idx], dtype=np.float32)
+                }
+            }
         
         # Parse scene name and dataset code
         # Format: SC001_K_ILL000 or SC001_B_ILL000
@@ -144,18 +238,21 @@ class RGBDataset(BaseDataset):
             illuminant_idx = self._get_illuminant_idx(idx, scene_key)
             
             rgb_image, metadata = self.renderer.render_rgb(scene_name, dataset_code, illuminant_idx)
+            if self.input_size is not None:
+                rgb_image = cv2.resize(rgb_image.transpose(1, 2, 0), (self.input_size, self.input_size), interpolation=cv2.INTER_AREA).transpose(2, 0, 1)
             
-            # Generate GT
-            if self.gt_type == "raw":
-                gt_image = self.renderer.render_gt_rgb(scene_name, dataset_code)
-            else:
-                # For xyz/srgb GT, we still need to load from pre-generated files
-                gt_path = os.path.join(self.dataset_root, "GT", self.gt_type + "_scenes", f"{scene_name}_{dataset_code}.png")
-                if os.path.exists(gt_path):
-                    gt_image = load_rgb_image(path=gt_path, bit_depth=12)
-                else:
-                    # Fall back to raw GT
+            if self.load_gt:
+                # Generate GT
+                if self.gt_type == "raw":
                     gt_image = self.renderer.render_gt_rgb(scene_name, dataset_code)
+                else:
+                    # For xyz/srgb GT, we still need to load from pre-generated files
+                    gt_path = os.path.join(self.dataset_root, "GT", self.gt_type + "_scenes", f"{scene_name}_{dataset_code}.png")
+                    if os.path.exists(gt_path):
+                        gt_image = load_rgb_image(path=gt_path, bit_depth=12)
+                    else:
+                        # Fall back to raw GT
+                        gt_image = self.renderer.render_gt_rgb(scene_name, dataset_code)
             
             # Update file_name to include illuminant info
             file_name = f"{scene_name}_{dataset_code}_ILL{illuminant_idx:03d}"
@@ -165,23 +262,25 @@ class RGBDataset(BaseDataset):
             ill_name = "ILL" + file_name.split("_ILL")[1]
 
             # Load RGB image 
-            rgb_image = load_rgb_image(path=os.path.join(self.dataset_root, self.rgb_camera, "imgs", file_name+".png"), bit_depth=12)
+            rgb_image = load_rgb_image(path=os.path.join(self.dataset_root, self.rgb_camera, "imgs", file_name+".png"), bit_depth=12, output_size=self.input_size)
 
             # Load metadata
             metadata = load_metadata(path=os.path.join(self.dataset_root, self.rgb_camera, "metadata", ill_name+".json"))
 
-            # Load GT
-            if self.gt_type == "raw":
-                gt_image = load_rgb_image(os.path.join(self.dataset_root, self.rgb_camera, "gt_raw", scene_name_full+".png"), bit_depth=12)
-            else:
-                gt_image = load_rgb_image(path=os.path.join(self.dataset_root, "GT", self.gt_type+"_scenes", scene_name_full+".png"), bit_depth=12)
+            if self.load_gt:
+                # Load GT
+                if self.gt_type == "raw":
+                    gt_image = load_rgb_image(os.path.join(self.dataset_root, self.rgb_camera, "gt_raw", scene_name_full+".png"), bit_depth=12)
+                else:
+                    gt_image = load_rgb_image(path=os.path.join(self.dataset_root, "GT", self.gt_type+"_scenes", scene_name_full+".png"), bit_depth=12)
 
         sample = {
             "file_name": file_name,
             "rgb_image": rgb_image,
-            "gt_image": gt_image,
             "metadata": metadata
         }
+        if self.load_gt:
+            sample["gt_image"] = gt_image
 
         return sample
 

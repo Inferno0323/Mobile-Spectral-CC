@@ -5,14 +5,25 @@ from auxiliary.experiment_utils import plot_metrics as plot
 from auxiliary.color_utils import xyz2srgb
 import copy
 import cv2
+import torch
 
-import ipdb
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    SummaryWriter = None
 
 class Logger():
     def __init__(self, exp_cfg, exp_dir):
 
         self.exp_cfg = exp_cfg
         self.exp_dir = exp_dir
+        self.writer = None
+        if self.exp_cfg.get("tensorboard", False):
+            if SummaryWriter is None:
+                print("TensorBoard logging requested, but tensorboard is not installed.")
+            else:
+                self.writer = SummaryWriter(log_dir=self.exp_cfg.get("tensorboard_dir") or os.path.join(exp_dir, "tensorboard"))
 
     def log_experiment_start(self, experiment=None):
         msg = f"Experiment Name: {self.exp_cfg.get('exp_name')}\n"
@@ -23,13 +34,19 @@ class Logger():
         if experiment is not None:
             # Return experiment model parameters
             num_params, num_trainable = experiment.model.num_parameters()
-            profile_stats = experiment.model.profile()
             msg += f"Parameters: {num_params/1e6:.4f} M (of which {num_trainable/1e6:.4f} M trainable)\n"
-            # Return experiment model FLOPs and profiling info
-            msg += f"FLOPs: {profile_stats['flops']/1e9:.4f} G, Params: {profile_stats['params']/1e6:.4f} M\n"
-            msg += f"Inference Time: {profile_stats['inference_time_ms']:.2f} ms\n"
-            msg += f"FPS: {1000/profile_stats['inference_time_ms']:.2f}\n"
-            msg += f"Max Memory Allocated: {profile_stats['max_memory_allocated_mb']:.2f} MB, Reserved: {profile_stats['max_memory_reserved_mb']:.2f} MB\n"
+            if getattr(experiment, "profile_model", True):
+                profile_stats = experiment.model.profile()
+                # Return experiment model FLOPs and profiling info
+                msg += f"FLOPs: {profile_stats['flops']/1e9:.4f} G, Params: {profile_stats['params']/1e6:.4f} M\n"
+                msg += f"Inference Time: {profile_stats['inference_time_ms']:.2f} ms\n"
+                msg += f"FPS: {1000/profile_stats['inference_time_ms']:.2f}\n"
+                msg += f"Max Memory Allocated: {profile_stats['max_memory_allocated_mb']:.2f} MB, Reserved: {profile_stats['max_memory_reserved_mb']:.2f} MB\n"
+            else:
+                msg += "Model profiling: disabled\n"
+            msg += f"Training Metrics: {'enabled' if getattr(experiment, 'train_metrics_enabled', True) else 'loss-only'}\n"
+            msg += f"Validation Metrics: {'enabled' if getattr(experiment, 'val_metrics_enabled', True) else 'loss-only'}"
+            msg += f" (interval: {getattr(experiment, 'val_interval', 1)} epoch(s))\n"
 
         msg += f"Dataset Root: {self.exp_cfg.get('dataset_root')}\n"
         msg += f"RGB Camera: {self.exp_cfg.get('rgb_camera')}" if self.exp_cfg.get('data_type') in ["RGB", "RGB+MS"] else ""
@@ -62,7 +79,10 @@ class Logger():
         self.log_to_file(msg, os.path.join(self.exp_dir, "experiment_log.txt")) # Log to file
         self.save_metrics_to_csv(os.path.join(self.exp_dir, "experiment_log.csv"), train_metrics, val_metrics) # Log to CSV
 
-        self.plot_metrics(train_metrics, val_metrics, os.path.join(self.exp_dir, "plots.pdf")) # Plot metrics
+        if self.exp_cfg.get("plot_metrics", True):
+            self.plot_metrics(train_metrics, val_metrics, os.path.join(self.exp_dir, "plots.pdf")) # Plot metrics
+
+        self.log_tensorboard_scalars(epoch, train_metrics, val_metrics)
         
 
     def log_test_result(self, test_metrics):
@@ -80,6 +100,39 @@ class Logger():
         msg = f"Gradient error at epoch {epoch+1}, iter {iter+1}. Step skipped.\n"
         print(msg)
         self.log_to_file(msg, os.path.join(self.exp_dir, "experiment_log.txt"))
+
+    def log_tensorboard_scalars(self, epoch, train_metrics, val_metrics):
+        if self.writer is None:
+            return
+
+        train_stats = train_metrics.get_last(stat="mean")
+        val_stats = val_metrics.get_last(stat="mean")
+
+        for key, value in train_stats.items():
+            if value is not None:
+                self.writer.add_scalar(f"train/{key}", value, epoch + 1)
+        for key, value in val_stats.items():
+            if value is not None:
+                self.writer.add_scalar(f"val/{key}", value, epoch + 1)
+        self.writer.flush()
+
+    def log_tensorboard_images(self, tag, images, step, max_images=4):
+        if self.writer is None or images is None:
+            return
+
+        if not torch.is_tensor(images):
+            images = torch.as_tensor(images)
+        images = images.detach().cpu().float()
+        if images.ndim == 3:
+            images = images.unsqueeze(0)
+        images = images[:max_images].clamp(0, 1)
+
+        self.writer.add_images(tag, images, step)
+        self.writer.flush()
+
+    def close(self):
+        if self.writer is not None:
+            self.writer.close()
 
     def save_per_image_metrics(self, per_image_metrics):
         """Save per-image metrics to a CSV file.
@@ -125,12 +178,17 @@ class Logger():
         for epoch in range(epochs):
             epoch_data = {"Epoch": epoch + 1}
             train_stats = {k: v[epoch] for k, v in train_metrics.epoch_values.items()}
-            val_stats = {k: v[epoch] for k, v in val_metrics.epoch_values.items()}
+            val_stats = {
+                k: v[epoch] if epoch < len(v) else (v[-1] if len(v) > 0 else None)
+                for k, v in val_metrics.epoch_values.items()
+            }
 
             for metric, stats in train_stats.items():
                 for stat_name, stat_value in stats.items():
                     epoch_data[f"Train_{metric}_{stat_name}"] = np.round(stat_value, 4)
             for metric, stats in val_stats.items():
+                if stats is None:
+                    continue
                 for stat_name, stat_value in stats.items():
                     epoch_data[f"Val_{metric}_{stat_name}"] = np.round(stat_value, 4)
 
