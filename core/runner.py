@@ -49,6 +49,15 @@ class Runner():
                         )
                         if self.experiment.val_metrics_enabled:
                             self.experiment.val_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
+                            if (
+                                self.experiment.tensorboard_images
+                                and i == 0
+                                and (epoch + 1) % self.experiment.tensorboard_image_interval == 0
+                            ):
+                                self.experiment.logger.log_tensorboard_images("val/pred", pred, epoch + 1)
+                                self.experiment.logger.log_tensorboard_images("val/gt", data["gt_image"], epoch + 1)
+                                if "rgb_image" in data:
+                                    self.experiment.logger.log_tensorboard_images("val/rgb_input", data["rgb_image"], epoch + 1)
                         else:
                             self.experiment.val_metrics.update_loss(loss)
 
@@ -121,6 +130,12 @@ class Runner():
                     de00 = self.experiment.test_metrics.iter_values["deltaE00"][-batch_size:][idx]
                     self.experiment.logger.save_viz(pred[idx].detach().cpu(), data["gt_image"][idx].detach().cpu(), os.path.join(self.experiment.exp_dir, "test_viz", data["file_name"][idx]+f"(dE00={de00:.2f}).png"))
 
+                if self.experiment.tensorboard_images and i == 0:
+                    self.experiment.logger.log_tensorboard_images("test/pred", pred, 0)
+                    self.experiment.logger.log_tensorboard_images("test/gt", data["gt_image"], 0)
+                    if "rgb_image" in data:
+                        self.experiment.logger.log_tensorboard_images("test/rgb_input", data["rgb_image"], 0)
+
                 # Save visualizations for images with deltaE00 in specified range
                 if self.experiment.test_viz_de00_range is not None:
                     de00_min, de00_max = self.experiment.test_viz_de00_range
@@ -149,8 +164,11 @@ class Runner():
         self.experiment.logger.log_test_result(self.experiment.test_metrics)
 
     def run(self):
-        self.experiment.logger.log_experiment_start(self.experiment)
-        if self.experiment.train:
-            self.train()
-        if self.experiment.test:
-            self.test()
+        try:
+            self.experiment.logger.log_experiment_start(self.experiment)
+            if self.experiment.train:
+                self.train()
+            if self.experiment.test:
+                self.test()
+        finally:
+            self.experiment.logger.close()

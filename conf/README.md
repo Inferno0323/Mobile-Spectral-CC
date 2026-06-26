@@ -71,6 +71,29 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 | `val_interval` | int | Run validation every N epochs |
 | `cache_rgb` | bool | Cache resized RGB training tensors for fast FC4/RGB training |
 | `cache_dir` | str | Optional directory for the fast RGB tensor cache |
+| `tensorboard` | bool | Enable TensorBoard scalar logging under the experiment directory |
+| `tensorboard_images` | bool | Log sample RGB/GT/prediction images to TensorBoard when full image predictions are available |
+| `tensorboard_image_interval` | int | Log TensorBoard images every N validation epochs |
+
+## Inspecting Batches and Multispectral Channels
+
+Use the inspection tool to print batch size, channel count, height, and width, and to save RGB/MS visualizations:
+
+```bash
+python tools/inspect_multispectral.py conf/SpectralLPIENet.py --split train --batch-size 4 --out-dir artifacts/inspect_spectral
+```
+
+For RGB-only FC4:
+
+```bash
+python tools/inspect_multispectral.py conf/FC4.py --split train --batch-size 4 --out-dir artifacts/inspect_fc4
+```
+
+TensorBoard logs are written under each experiment directory when `tensorboard=True`:
+
+```bash
+tensorboard --logdir experiments
+```
 
 ### Checkpoints & Pretrained Weights
 

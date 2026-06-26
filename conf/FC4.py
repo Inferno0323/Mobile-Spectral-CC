@@ -59,6 +59,9 @@ cfg = dict(
     data_parallel = False,
     check_gradients = False,
     plot_metrics = False,
+    tensorboard = True,
+    tensorboard_images = True,
+    tensorboard_image_interval = 5,
         
     pretrained_weights = None, 
     # pretrained_weights = "pretrained/CanonR5/FC4.pth", # path to pretrained weight for testing

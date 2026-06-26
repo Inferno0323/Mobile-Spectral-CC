@@ -127,6 +127,9 @@ class Experiment():
         self.cache_dir = cfg.get("cache_dir", None)
         self.check_gradients = cfg.get("check_gradients", True)
         self.plot_metrics_enabled = cfg.get("plot_metrics", True)
+        self.tensorboard = cfg.get("tensorboard", False)
+        self.tensorboard_images = cfg.get("tensorboard_images", True)
+        self.tensorboard_image_interval = cfg.get("tensorboard_image_interval", 5)
 
     def to_dict(self):
         return self.cfg

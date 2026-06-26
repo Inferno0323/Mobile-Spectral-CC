@@ -5,14 +5,26 @@ from auxiliary.experiment_utils import plot_metrics as plot
 from auxiliary.color_utils import xyz2srgb
 import copy
 import cv2
+import torch
 
 import ipdb
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    SummaryWriter = None
 
 class Logger():
     def __init__(self, exp_cfg, exp_dir):
 
         self.exp_cfg = exp_cfg
         self.exp_dir = exp_dir
+        self.writer = None
+        if self.exp_cfg.get("tensorboard", False):
+            if SummaryWriter is None:
+                print("TensorBoard logging requested, but tensorboard is not installed.")
+            else:
+                self.writer = SummaryWriter(log_dir=self.exp_cfg.get("tensorboard_dir") or os.path.join(exp_dir, "tensorboard"))
 
     def log_experiment_start(self, experiment=None):
         msg = f"Experiment Name: {self.exp_cfg.get('exp_name')}\n"
@@ -70,6 +82,8 @@ class Logger():
 
         if self.exp_cfg.get("plot_metrics", True):
             self.plot_metrics(train_metrics, val_metrics, os.path.join(self.exp_dir, "plots.pdf")) # Plot metrics
+
+        self.log_tensorboard_scalars(epoch, train_metrics, val_metrics)
         
 
     def log_test_result(self, test_metrics):
@@ -87,6 +101,39 @@ class Logger():
         msg = f"Gradient error at epoch {epoch+1}, iter {iter+1}. Step skipped.\n"
         print(msg)
         self.log_to_file(msg, os.path.join(self.exp_dir, "experiment_log.txt"))
+
+    def log_tensorboard_scalars(self, epoch, train_metrics, val_metrics):
+        if self.writer is None:
+            return
+
+        train_stats = train_metrics.get_last(stat="mean")
+        val_stats = val_metrics.get_last(stat="mean")
+
+        for key, value in train_stats.items():
+            if value is not None:
+                self.writer.add_scalar(f"train/{key}", value, epoch + 1)
+        for key, value in val_stats.items():
+            if value is not None:
+                self.writer.add_scalar(f"val/{key}", value, epoch + 1)
+        self.writer.flush()
+
+    def log_tensorboard_images(self, tag, images, step, max_images=4):
+        if self.writer is None or images is None:
+            return
+
+        if not torch.is_tensor(images):
+            images = torch.as_tensor(images)
+        images = images.detach().cpu().float()
+        if images.ndim == 3:
+            images = images.unsqueeze(0)
+        images = images[:max_images].clamp(0, 1)
+
+        self.writer.add_images(tag, images, step)
+        self.writer.flush()
+
+    def close(self):
+        if self.writer is not None:
+            self.writer.close()
 
     def save_per_image_metrics(self, per_image_metrics):
         """Save per-image metrics to a CSV file.
