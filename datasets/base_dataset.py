@@ -204,13 +204,13 @@ class RGBDataset(BaseDataset):
         self._cached_rgb = np.memmap(
             rgb_path,
             dtype=np.float16,
-            mode="r",
+            mode="r+",
             shape=tuple(expected_metadata["shape"]),
         )
         self._cached_illum = np.memmap(
             illum_path,
             dtype=np.float32,
-            mode="r",
+            mode="r+",
             shape=(len(self.files_list), 3),
         )
         print(f"[RGBDataset] Using fast RGB cache at {cache_path}")

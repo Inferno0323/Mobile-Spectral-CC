@@ -132,12 +132,17 @@ class Logger():
         for epoch in range(epochs):
             epoch_data = {"Epoch": epoch + 1}
             train_stats = {k: v[epoch] for k, v in train_metrics.epoch_values.items()}
-            val_stats = {k: v[epoch] for k, v in val_metrics.epoch_values.items()}
+            val_stats = {
+                k: v[epoch] if epoch < len(v) else (v[-1] if len(v) > 0 else None)
+                for k, v in val_metrics.epoch_values.items()
+            }
 
             for metric, stats in train_stats.items():
                 for stat_name, stat_value in stats.items():
                     epoch_data[f"Train_{metric}_{stat_name}"] = np.round(stat_value, 4)
             for metric, stats in val_stats.items():
+                if stats is None:
+                    continue
                 for stat_name, stat_value in stats.items():
                     epoch_data[f"Val_{metric}_{stat_name}"] = np.round(stat_value, 4)
 
