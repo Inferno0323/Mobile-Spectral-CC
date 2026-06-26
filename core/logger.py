@@ -7,7 +7,6 @@ import copy
 import cv2
 import torch
 
-import ipdb
 
 try:
     from torch.utils.tensorboard import SummaryWriter

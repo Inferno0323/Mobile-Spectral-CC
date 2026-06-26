@@ -7,7 +7,6 @@ from .color_utils import Illuminant, CMF
 from skimage import color
 import math
 
-import ipdb
 
 # Losses
 
@@ -152,7 +151,6 @@ class SafePowClip(torch.autograd.Function):
 #         #         print("NaN detected in gradient!")
 #         #         print("Indices with NaN:", nan_mask.nonzero())
 #         #         print("Corresponding forward values:", img1[nan_mask])
-#         #         ipdb.set_trace()
 #         #     return grad  # must return grad
 
 #         # img1.register_hook(check_nan_grad)

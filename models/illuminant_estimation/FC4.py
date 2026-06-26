@@ -6,7 +6,6 @@ import torch.nn.init as init
 from torch.nn.functional import normalize
 from torch.utils import model_zoo
 
-import ipdb
 
 class Fire(nn.Module):
 

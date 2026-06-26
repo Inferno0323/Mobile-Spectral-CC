@@ -6,7 +6,6 @@ import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 import random
 import re
-import ipdb
 
 def seed_everything(seed, deterministic=True):
     """

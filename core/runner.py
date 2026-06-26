@@ -1,15 +1,7 @@
 import os
 import torch
-import numpy as np
 import tqdm
 from core.experiment import Experiment
-from core.logger import Logger
-from core.evaluator import Evaluator
-
-
-import pandas as pd
-
-import ipdb
 
 
 class Runner():

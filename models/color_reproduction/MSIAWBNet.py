@@ -245,20 +245,3 @@ class MSIAWBNet(nn.Module):
             return out, illum
 
         return out
-
-# ----------------------------- Quick shape test -----------------------------
-if __name__ == '__main__':
-    model = AWBFusionNet(base_ch=32, msi_in_ch=15, num_heads=8)
-    B = 2
-    rgb = torch.randn(B,3,512,512)
-    msi = torch.randn(B,15,64,64)
-    y = model(rgb, msi)
-    print('Output shape:', y.shape)  # expect (B,3,512,512)
-
-# Notes / suggestions:
-# - You can replace ConvBlock by residual blocks or inverted-residuals for efficiency.
-# - Optionally apply LayerNorm and use depthwise separable convs to reduce parameters.
-# - Consider multi-scale fusion: e.g. also fuse lower-level RGB features with MSI via attention after upsampling MSI to those scales.
-# - Losses: L1 / L2 on output rawRGB (or sRGB depending on target). Consider perceptual loss after ISP or a small differentiable ISP to compare final sRGB.
-# - Training tip: start with smaller base_ch (16) to quickly iterate, then scale up.
-

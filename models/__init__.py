@@ -11,13 +11,6 @@ from .illuminant_estimation.ConvolutionalEB import ConvolutionalEB
 from .color_correction.classic_pipeline import ClassicCorrectionPipeline
 from .color_reproduction.MSIAWBNet import MSIAWBNet
 
-
-# TODO: Implement FFCC
-
-# TODO: Implement MS based methods for comparisons
-# TODO: Adapt LPIENet to the task
-
-
 __all__ = [
     'ConvolutionalEB',
     'ConvMean',

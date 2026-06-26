@@ -8,7 +8,6 @@ import json
 import os
 from functools import lru_cache
 
-import ipdb
 
 cv2.setNumThreads(0)
 cv2.ocl.setUseOpenCL(False)

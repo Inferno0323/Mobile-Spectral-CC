@@ -1,6 +1,5 @@
 import argparse
 from core.runner import Runner
-import ipdb
 
 
 def parse_device_arg(device):

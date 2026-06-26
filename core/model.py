@@ -455,7 +455,6 @@ class JointAWBModel(BaseModel):
 
         rgb_image = self._move(data["rgb_image"])
         gt_image = self._move(data["gt_image"])
-        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
         with self._autocast():
             pred_xyz = self.model(rgb_image)
@@ -469,7 +468,6 @@ class JointAWBModel(BaseModel):
     def eval_step(self, data, compute_metrics=True):
         rgb_image = self._move(data["rgb_image"])
         gt_image = self._move(data["gt_image"])
-        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
         with self._autocast():
             pred_xyz = self.model(rgb_image)
@@ -515,7 +513,6 @@ class JointMSRGBAWBModel(BaseModel):
         rgb_image = self._move(data["rgb_image"])
         ms_image = self._move(data["ms_image"])
         gt_image = self._move(data["gt_image"])
-        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
         with self._autocast():
             pred_xyz = self.model(rgb_image, ms_image)
@@ -531,7 +528,6 @@ class JointMSRGBAWBModel(BaseModel):
         rgb_image = self._move(data["rgb_image"])
         ms_image = self._move(data["ms_image"])
         gt_image = self._move(data["gt_image"])
-        gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
         with self._autocast():
             pred_xyz = self.model(rgb_image, ms_image)

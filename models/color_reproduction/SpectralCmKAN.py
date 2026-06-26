@@ -6,7 +6,6 @@ from typing import List, Callable
 from typing_extensions import Self
 from einops import rearrange
 
-import ipdb
 
 def compute_bspline(x: torch.Tensor, grid: torch.Tensor, k: int):
     """
@@ -802,6 +801,5 @@ if __name__ == "__main__":
     rgb = torch.randn(2, 3, 512, 512)
     spectral = torch.randn(2, 15, 64, 64)
     model = SpectralLightCmKAN()
-    ipdb.set_trace()
     out = model(rgb, spectral)
     print(out.shape)  # (2, 3, 512, 512)

@@ -14,7 +14,6 @@ from auxiliary.color_utils import XYZ_CMF_SPECTRUM, E_SPECTRUM, D65_SPECTRUM
 
 import time
 
-import ipdb
 
 
 # Default paths for on-the-fly generation
