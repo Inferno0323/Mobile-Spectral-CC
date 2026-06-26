@@ -29,6 +29,7 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 | `model_type` | str | Type of model: `"IE"` (Illuminant Estimation), `"MSIE"` (Multispectral IE), or `"J_MSI"` (Joint Multispectral Image-to-Image) |
 | `model_name` | str | Name of the model architecture |
 | `model_parameters` | dict | Model-specific parameters |
+| `input_size` | int | Optional FC4 model parameter to downscale inputs before the backbone (for example `224`) |
 
 ### Dataset Settings
 
@@ -56,6 +57,43 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 | `early_stop` | int | Early stopping patience (epochs) |
 | `criterion` | str | Loss function: `"AngularErrorLoss"`, `"L1Loss"`, `"L2Loss"`, `"deltaE76Loss"` |
 | `metrics` | list | Evaluation metrics: `["ReproductionError", "deltaE00", "PSNR", "LPIPS"]` |
+| `deterministic` | bool | Keep deterministic CUDA behavior (`True`, default) or allow faster cuDNN autotuned kernels (`False`) |
+| `amp` | bool | Enable automatic mixed precision on CUDA for faster training and lower memory use |
+| `amp_dtype` | str | AMP dtype: `"float16"` or `"bfloat16"` |
+| `tf32` | bool | Enable TF32 matmul/cuDNN kernels on supported NVIDIA GPUs |
+| `channels_last` | bool | Use channels-last memory format for CUDA convolution throughput |
+| `non_blocking` | bool | Use non-blocking host-to-GPU tensor transfers when pinned memory is enabled |
+| `persistent_workers` | bool | Keep DataLoader workers alive across epochs |
+| `prefetch_factor` | int | Number of batches each DataLoader worker prefetches |
+| `profile_model` | bool | Run startup FLOPs/timing profiling (`True`, default); disable for faster startup |
+| `train_metrics` | bool | Compute full training image metrics every batch (`True`, default); set `False` for loss-only training logs and faster FC4/IE training |
+| `val_metrics` | bool | Compute full validation image metrics (`True`, default); set `False` for loss-only validation during fast training |
+| `val_interval` | int | Run validation every N epochs |
+| `cache_rgb` | bool | Cache resized RGB training tensors for fast FC4/RGB training |
+| `cache_dir` | str | Optional directory for the fast RGB tensor cache |
+| `tensorboard` | bool | Enable TensorBoard scalar logging under the experiment directory |
+| `tensorboard_images` | bool | Log sample RGB/GT/prediction images to TensorBoard when full image predictions are available |
+| `tensorboard_image_interval` | int | Log TensorBoard images every N validation epochs |
+
+## Inspecting Batches and Multispectral Channels
+
+Use the inspection tool to print batch size, channel count, height, and width, and to save RGB/MS visualizations:
+
+```bash
+python tools/inspect_multispectral.py conf/SpectralLPIENet.py --split train --batch-size 4 --out-dir artifacts/inspect_spectral
+```
+
+For RGB-only FC4:
+
+```bash
+python tools/inspect_multispectral.py conf/FC4.py --split train --batch-size 4 --out-dir artifacts/inspect_fc4
+```
+
+TensorBoard logs are written under each experiment directory when `tensorboard=True`:
+
+```bash
+tensorboard --logdir experiments
+```
 
 ### Checkpoints & Pretrained Weights
 

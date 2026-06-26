@@ -4,3 +4,4 @@ colour-science==0.4.6
 h5py==3.14.0
 ipdb==0.13.13
 matplotlib==3.10.6
+tensorboard
