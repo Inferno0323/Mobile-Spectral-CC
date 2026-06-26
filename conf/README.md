@@ -33,6 +33,9 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 
 ### Dataset Settings
 
+This branch does not bundle data files. The paths below must point to data you
+download, generate, or upload locally.
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `data_type` | str | Input data type: `"RGB"`, `"MS"`, or `"RGB+MS"` |
