@@ -29,6 +29,7 @@ class BaseModel(torch.nn.Module):
         self.scaler = None
         self.channels_last = False
         self.non_blocking = False
+        self.check_gradients = True
 
     def initialize_model(self):
         if os.path.exists(self.model_name): # model_name is a path
@@ -50,11 +51,12 @@ class BaseModel(torch.nn.Module):
     def init_loss_criterion(self, criterion):
         self.criterion = eval(criterion)()
 
-    def configure_performance(self, amp=False, amp_dtype="float16", channels_last=False, non_blocking=False):
+    def configure_performance(self, amp=False, amp_dtype="float16", channels_last=False, non_blocking=False, check_gradients=True):
         self.amp_enabled = bool(amp) and self._using_cuda()
         self.amp_dtype = torch.bfloat16 if amp_dtype == "bfloat16" else torch.float16
         self.channels_last = bool(channels_last)
         self.non_blocking = bool(non_blocking) and self._using_cuda()
+        self.check_gradients = bool(check_gradients)
         self.scaler = self._make_grad_scaler()
 
         if self.channels_last and self._using_cuda():
@@ -187,7 +189,7 @@ class BaseModel(torch.nn.Module):
     def train_step(self, data, compute_metrics=True):
         raise NotImplementedError("This method should be overridden by subclasses")
 
-    def eval_step(self, data):
+    def eval_step(self, data, compute_metrics=True):
         raise NotImplementedError("This method should be overridden by subclasses")
 
     def train(self, mode=True):
@@ -206,7 +208,7 @@ class BaseModel(torch.nn.Module):
             loss.backward()
 
         # If gradients go to NaN or Inf, skip the update
-        if any(torch.isnan(param.grad).any() or torch.isinf(param.grad).any() for param in self.model.parameters() if param.grad is not None):
+        if self.check_gradients and any(torch.isnan(param.grad).any() or torch.isinf(param.grad).any() for param in self.model.parameters() if param.grad is not None):
             print("NaN or Inf detected in gradients, skipping optimizer step.")
             if self.scaler is not None:
                 self.scaler.update()
@@ -311,14 +313,16 @@ class IlluminantEstimationModel(BaseModel):
 
         return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
-    def eval_step(self, data):
+    def eval_step(self, data, compute_metrics=True):
         rgb_image = self._move(data["rgb_image"])
-        gt_image = self._move(data["gt_image"])
         gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
         with self._autocast():
             pred_illuminant = self.model(rgb_image)
             loss = self.criterion(pred_illuminant, gt_illum)
+
+        if not compute_metrics:
+            return loss.item(), None
 
         pred_xyz = self.correction_module(rgb = rgb_image, 
                                         ill = self._metric_tensor(pred_illuminant.detach()),
@@ -389,16 +393,18 @@ class MSIlluminantEstimationModel(BaseModel):
 
         return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
-    def eval_step(self, data):
+    def eval_step(self, data, compute_metrics=True):
         rgb_image = self._move(data["rgb_image"])
         ms_image = self._move(data["ms_image"])
-        gt_image = self._move(data["gt_image"])
         gt_illum = self._move(data["metadata"]["illuminant_rgb"])
 
 
         with self._autocast():
             pred_illuminant = self.model(ms_image)
             loss = self.criterion(pred_illuminant, gt_illum)
+
+        if not compute_metrics:
+            return loss.item(), None
 
         pred_xyz = self.correction_module(rgb = rgb_image, 
                                         ill = self._metric_tensor(pred_illuminant.detach()),
@@ -460,7 +466,7 @@ class JointAWBModel(BaseModel):
 
         return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
-    def eval_step(self, data):
+    def eval_step(self, data, compute_metrics=True):
         rgb_image = self._move(data["rgb_image"])
         gt_image = self._move(data["gt_image"])
         gt_illum = self._move(data["metadata"]["illuminant_rgb"])
@@ -468,6 +474,9 @@ class JointAWBModel(BaseModel):
         with self._autocast():
             pred_xyz = self.model(rgb_image)
             loss = self.criterion(pred_xyz, gt_image)
+
+        if not compute_metrics:
+            return loss.item(), None
 
         return loss.item(), self._metric_tensor(pred_xyz)
 
@@ -518,7 +527,7 @@ class JointMSRGBAWBModel(BaseModel):
 
         return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
-    def eval_step(self, data):
+    def eval_step(self, data, compute_metrics=True):
         rgb_image = self._move(data["rgb_image"])
         ms_image = self._move(data["ms_image"])
         gt_image = self._move(data["gt_image"])
@@ -527,6 +536,9 @@ class JointMSRGBAWBModel(BaseModel):
         with self._autocast():
             pred_xyz = self.model(rgb_image, ms_image)
             loss = self.criterion(pred_xyz, gt_image)
+
+        if not compute_metrics:
+            return loss.item(), None
 
         return loss.item(), self._metric_tensor(pred_xyz)
 

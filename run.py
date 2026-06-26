@@ -30,6 +30,8 @@ if __name__ == "__main__":
     parser.add_argument("--test-batch-size", type=int, default=None, help="Override the test batch size")
     parser.add_argument("--prefetch-factor", type=int, default=None, help="Override DataLoader prefetch batches per worker")
     parser.add_argument("--skip-train-metrics", action="store_true", help="Track training loss only; skip expensive per-batch image metrics/correction")
+    parser.add_argument("--skip-val-metrics", action="store_true", help="Track validation loss only; skip expensive validation image metrics/correction")
+    parser.add_argument("--val-interval", type=int, default=None, help="Run validation every N epochs")
     parser.add_argument("--input-size", type=int, default=None, help="Override square neural-network input size for compatible models such as FC4")
     parser.add_argument("--cache-rgb", action="store_true", help="Cache resized RGB training tensors for fast FC4/RGB training")
     parser.add_argument("--cache-dir", type=str, default=None, help="Directory for fast RGB tensor cache")
@@ -48,7 +50,10 @@ if __name__ == "__main__":
             "persistent_workers": True,
             "prefetch_factor": 2,
             "train_metrics": False,
+            "val_metrics": False,
+            "val_interval": 5,
             "cache_rgb": True,
+            "model_parameter_overrides": {"input_size": 224},
         })
     if opt.device is not None:
         args["device"] = parse_device_arg(opt.device)
@@ -70,8 +75,12 @@ if __name__ == "__main__":
         args["prefetch_factor"] = opt.prefetch_factor
     if opt.skip_train_metrics:
         args["train_metrics"] = False
+    if opt.skip_val_metrics:
+        args["val_metrics"] = False
+    if opt.val_interval is not None:
+        args["val_interval"] = opt.val_interval
     if opt.input_size is not None:
-        args["model_parameter_overrides"] = {"input_size": opt.input_size}
+        args.setdefault("model_parameter_overrides", {})["input_size"] = opt.input_size
     if opt.cache_rgb:
         args["cache_rgb"] = True
     if opt.cache_dir is not None:

@@ -34,6 +34,8 @@ class Logger():
             else:
                 msg += "Model profiling: disabled\n"
             msg += f"Training Metrics: {'enabled' if getattr(experiment, 'train_metrics_enabled', True) else 'loss-only'}\n"
+            msg += f"Validation Metrics: {'enabled' if getattr(experiment, 'val_metrics_enabled', True) else 'loss-only'}"
+            msg += f" (interval: {getattr(experiment, 'val_interval', 1)} epoch(s))\n"
 
         msg += f"Dataset Root: {self.exp_cfg.get('dataset_root')}\n"
         msg += f"RGB Camera: {self.exp_cfg.get('rgb_camera')}" if self.exp_cfg.get('data_type') in ["RGB", "RGB+MS"] else ""
@@ -66,7 +68,8 @@ class Logger():
         self.log_to_file(msg, os.path.join(self.exp_dir, "experiment_log.txt")) # Log to file
         self.save_metrics_to_csv(os.path.join(self.exp_dir, "experiment_log.csv"), train_metrics, val_metrics) # Log to CSV
 
-        self.plot_metrics(train_metrics, val_metrics, os.path.join(self.exp_dir, "plots.pdf")) # Plot metrics
+        if self.exp_cfg.get("plot_metrics", True):
+            self.plot_metrics(train_metrics, val_metrics, os.path.join(self.exp_dir, "plots.pdf")) # Plot metrics
         
 
     def log_test_result(self, test_metrics):

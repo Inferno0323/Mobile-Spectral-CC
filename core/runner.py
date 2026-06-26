@@ -36,23 +36,32 @@ class Runner():
                     self.experiment.train_metrics.update_loss(loss)
                 train_loop.set_postfix(loss=loss)
 
-            self.experiment.model.eval()
-            val_loop = tqdm.tqdm(self.experiment.val_loader, desc=f"Epoch {epoch+1}/{self.experiment.n_epochs} - Validation")
-            with torch.no_grad():
-                for i, data in enumerate(val_loop):
-                    loss = 0
-                    loss, pred = self.experiment.model.eval_step(data)
-                    self.experiment.val_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
+            should_validate = (epoch + 1) % self.experiment.val_interval == 0 or epoch == self.experiment.starting_epoch
+            if should_validate:
+                self.experiment.model.eval()
+                val_loop = tqdm.tqdm(self.experiment.val_loader, desc=f"Epoch {epoch+1}/{self.experiment.n_epochs} - Validation")
+                with torch.no_grad():
+                    for i, data in enumerate(val_loop):
+                        loss = 0
+                        loss, pred = self.experiment.model.eval_step(
+                            data,
+                            compute_metrics=self.experiment.val_metrics_enabled,
+                        )
+                        if self.experiment.val_metrics_enabled:
+                            self.experiment.val_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
+                        else:
+                            self.experiment.val_metrics.update_loss(loss)
 
-                    if self.experiment.val_viz_list and any([x in self.experiment.val_viz_list for x in data["file_name"]]):
-                        idx = [x in self.experiment.val_viz_list for x in data["file_name"]].index(True)
-                        de00 = self.experiment.val_metrics.iter_values["deltaE00"][-pred.shape[0]:][idx]
-                        self.experiment.logger.save_viz(pred[idx].detach().cpu(), data["gt_image"][idx].detach().cpu(), os.path.join(self.experiment.exp_dir, "val_viz", f"ep{(epoch+1):03d}_"+data["file_name"][idx]+f"(dE00={de00:.2f}).png"))
+                        if self.experiment.val_metrics_enabled and self.experiment.val_viz_list and any([x in self.experiment.val_viz_list for x in data["file_name"]]):
+                            idx = [x in self.experiment.val_viz_list for x in data["file_name"]].index(True)
+                            de00 = self.experiment.val_metrics.iter_values["deltaE00"][-pred.shape[0]:][idx]
+                            self.experiment.logger.save_viz(pred[idx].detach().cpu(), data["gt_image"][idx].detach().cpu(), os.path.join(self.experiment.exp_dir, "val_viz", f"ep{(epoch+1):03d}_"+data["file_name"][idx]+f"(dE00={de00:.2f}).png"))
 
-                    val_loop.set_postfix(loss=loss)
+                        val_loop.set_postfix(loss=loss)
 
             self.experiment.train_metrics.aggregate()
-            self.experiment.val_metrics.aggregate()
+            if should_validate:
+                self.experiment.val_metrics.aggregate()
 
 
             self.experiment.logger.log_epoch_end(epoch, self.experiment.train_metrics, self.experiment.val_metrics)
@@ -60,7 +69,7 @@ class Runner():
             # Early stopping based on validation loss
             val_loss = self.experiment.val_metrics.get_last(stat="mean")["Loss"]
             
-            if self.experiment.early_stop is not None: 
+            if should_validate and self.experiment.early_stop is not None:
                 if val_loss < self.experiment.best_loss:
                     self.experiment.best_loss = val_loss
                     self.experiment.early_stop_counter = 0

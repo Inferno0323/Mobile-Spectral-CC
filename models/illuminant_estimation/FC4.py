@@ -146,7 +146,7 @@ class FC4(torch.nn.Module):
         and the confidence weights are returned as well (used for visualizations)
         """
 
-        if self.input_size is not None:
+        if self.input_size is not None and x.shape[2:] != (self.input_size, self.input_size):
             x = nn.functional.interpolate(x, size=(self.input_size, self.input_size), mode='bilinear', align_corners=False)
         elif self.resize and (x.shape[2] < 224 or x.shape[3] < 224):
             # if shape is lower than 224x224, resize to 224x224

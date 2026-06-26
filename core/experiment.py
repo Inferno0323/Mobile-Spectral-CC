@@ -35,6 +35,9 @@ class Experiment():
             elif k == "train_metrics":
                 self.train_metrics_enabled = v
                 self.cfg[k] = v
+            elif k == "val_metrics":
+                self.val_metrics_enabled = v
+                self.cfg[k] = v
             else:
                 setattr(self, k, v)
                 self.cfg[k] = v
@@ -118,8 +121,12 @@ class Experiment():
         self.persistent_workers = cfg.get("persistent_workers", False)
         self.prefetch_factor = cfg.get("prefetch_factor", None)
         self.train_metrics_enabled = cfg.get("train_metrics", True)
+        self.val_metrics_enabled = cfg.get("val_metrics", True)
+        self.val_interval = cfg.get("val_interval", 1)
         self.cache_rgb = cfg.get("cache_rgb", False)
         self.cache_dir = cfg.get("cache_dir", None)
+        self.check_gradients = cfg.get("check_gradients", True)
+        self.plot_metrics_enabled = cfg.get("plot_metrics", True)
 
     def to_dict(self):
         return self.cfg
@@ -233,13 +240,16 @@ class Experiment():
     def prepare_data(self):
         pin_memory = self.device.type == "cuda"
         train_load_gt = self.train_metrics_enabled or self.model_type != "IE"
+        val_load_gt = self.val_metrics_enabled or self.model_type != "IE"
         train_input_size = None if train_load_gt else self.model_parameters.get("input_size", None)
+        val_input_size = None if val_load_gt else self.model_parameters.get("input_size", None)
         if self.data_type == "RGB":
             self.train_dataset = RGBDataset(self.dataset_root, self.train_list, self.rgb_camera, self.gt_type,
                                             is_train=True, seed=self.seed, load_gt=train_load_gt, input_size=train_input_size,
                                             cache_rgb=self.cache_rgb and not train_load_gt, cache_dir=self.cache_dir)
             self.val_dataset = RGBDataset(self.dataset_root, self.val_list, self.rgb_camera, self.gt_type,
-                                          is_train=False, seed=self.seed)
+                                          is_train=False, seed=self.seed, load_gt=val_load_gt, input_size=val_input_size,
+                                          cache_rgb=self.cache_rgb and not val_load_gt, cache_dir=self.cache_dir)
             self.test_dataset = RGBDataset(self.dataset_root, self.test_list, self.rgb_camera, self.gt_type,
                                            is_train=False, seed=self.seed)
         elif self.data_type == "MS":
@@ -292,8 +302,8 @@ class Experiment():
         else:
             if self.pretrained_weights is not None:
                 self.model.load(self.pretrained_weights)
-            self.train_metrics = Evaluator(self.metrics)
-            self.val_metrics = Evaluator(self.metrics)
+            self.train_metrics = Evaluator(self.metrics if self.train_metrics_enabled else [])
+            self.val_metrics = Evaluator(self.metrics if self.val_metrics_enabled else [])
             self.best_loss = np.inf
             self.early_stop_counter = 0
             self.starting_epoch = 0
@@ -305,6 +315,7 @@ class Experiment():
             amp_dtype=self.amp_dtype,
             channels_last=self.channels_last,
             non_blocking=self.non_blocking,
+            check_gradients=self.check_gradients,
         )
         self.model.init_loss_criterion(self.criterion)
         if self.pretrained_weights is not None:
