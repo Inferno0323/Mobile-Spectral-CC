@@ -184,7 +184,7 @@ class BaseModel(torch.nn.Module):
         model = self._raw_model()
         return sum(p.numel() for p in model.parameters()), sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    def train_step(self, data):
+    def train_step(self, data, compute_metrics=True):
         raise NotImplementedError("This method should be overridden by subclasses")
 
     def eval_step(self, data):
@@ -289,7 +289,7 @@ class IlluminantEstimationModel(BaseModel):
     
         self.correction_module = ClassicCorrectionPipeline()
 
-    def train_step(self, data):
+    def train_step(self, data, compute_metrics=True):
         self.optimizer.zero_grad(set_to_none=True)
 
         rgb_image = self._move(data["rgb_image"])
@@ -301,6 +301,9 @@ class IlluminantEstimationModel(BaseModel):
             loss = self.criterion(pred_illuminant, gt_illum)
 
         backward_status = self.backward_pass(loss)
+        if not compute_metrics:
+            return loss.item(), None, backward_status
+
         pred_xyz = self.correction_module(rgb = rgb_image, 
                                         ill = self._metric_tensor(pred_illuminant.detach()),
                                         ill_cct = self._move(data["metadata"]["ill_cct"]),
@@ -364,7 +367,7 @@ class MSIlluminantEstimationModel(BaseModel):
  
         self.correction_module = ClassicCorrectionPipeline()
 
-    def train_step(self, data):
+    def train_step(self, data, compute_metrics=True):
         self.optimizer.zero_grad(set_to_none=True)
 
         rgb_image = self._move(data["rgb_image"])
@@ -377,6 +380,9 @@ class MSIlluminantEstimationModel(BaseModel):
             loss = self.criterion(pred_illuminant, gt_illum)
 
         backward_status = self.backward_pass(loss)
+        if not compute_metrics:
+            return loss.item(), None, backward_status
+
         pred_xyz = self.correction_module(rgb = rgb_image, 
                                         ill = self._metric_tensor(pred_illuminant.detach()),
                                         ill_cct = self._move(data["metadata"]["ill_cct"]),
@@ -440,7 +446,7 @@ class JointAWBModel(BaseModel):
         super(JointAWBModel, self).__init__(model_name, model_parameters)
         self.model_type = "J"
  
-    def train_step(self, data):
+    def train_step(self, data, compute_metrics=True):
         self.optimizer.zero_grad(set_to_none=True)
 
         rgb_image = self._move(data["rgb_image"])
@@ -451,6 +457,9 @@ class JointAWBModel(BaseModel):
             pred_xyz = self.model(rgb_image)
             loss = self.criterion(pred_xyz, gt_image)
         backward_status = self.backward_pass(loss)
+        if not compute_metrics:
+            return loss.item(), None, backward_status
+
         return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
     def eval_step(self, data):
@@ -492,7 +501,7 @@ class JointMSRGBAWBModel(BaseModel):
 
         self.criterion_proxy = AngularErrorLoss()
 
-    def train_step(self, data):
+    def train_step(self, data, compute_metrics=True):
         self.optimizer.zero_grad(set_to_none=True)
 
 
@@ -506,6 +515,9 @@ class JointMSRGBAWBModel(BaseModel):
             loss = self.criterion(pred_xyz, gt_image)
         
         backward_status = self.backward_pass(loss)
+        if not compute_metrics:
+            return loss.item(), None, backward_status
+
         return loss.item(), self._metric_tensor(pred_xyz), backward_status
 
     def eval_step(self, data):

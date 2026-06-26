@@ -65,6 +65,7 @@ All configuration files follow a consistent structure with a `cfg` dictionary co
 | `persistent_workers` | bool | Keep DataLoader workers alive across epochs |
 | `prefetch_factor` | int | Number of batches each DataLoader worker prefetches |
 | `profile_model` | bool | Run startup FLOPs/timing profiling (`True`, default); disable for faster startup |
+| `train_metrics` | bool | Compute full training image metrics every batch (`True`, default); set `False` for loss-only training logs and faster FC4/IE training |
 
 ### Checkpoints & Pretrained Weights
 

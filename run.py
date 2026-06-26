@@ -29,6 +29,7 @@ if __name__ == "__main__":
     parser.add_argument("--val-batch-size", type=int, default=None, help="Override the validation batch size")
     parser.add_argument("--test-batch-size", type=int, default=None, help="Override the test batch size")
     parser.add_argument("--prefetch-factor", type=int, default=None, help="Override DataLoader prefetch batches per worker")
+    parser.add_argument("--skip-train-metrics", action="store_true", help="Track training loss only; skip expensive per-batch image metrics/correction")
 
     opt = parser.parse_args()
     # define the optional args
@@ -43,6 +44,7 @@ if __name__ == "__main__":
             "profile_model": False,
             "persistent_workers": True,
             "prefetch_factor": 2,
+            "train_metrics": False,
         })
     if opt.device is not None:
         args["device"] = parse_device_arg(opt.device)
@@ -62,6 +64,8 @@ if __name__ == "__main__":
         args["test_batch_size"] = opt.test_batch_size
     if opt.prefetch_factor is not None:
         args["prefetch_factor"] = opt.prefetch_factor
+    if opt.skip_train_metrics:
+        args["train_metrics"] = False
     
     # create the runner
     r = Runner(cfg=opt.config_file, **args)

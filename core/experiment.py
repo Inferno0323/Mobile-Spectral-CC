@@ -110,6 +110,7 @@ class Experiment():
         self.profile_model = cfg.get("profile_model", True)
         self.persistent_workers = cfg.get("persistent_workers", False)
         self.prefetch_factor = cfg.get("prefetch_factor", None)
+        self.train_metrics_enabled = cfg.get("train_metrics", True)
 
     def to_dict(self):
         return self.cfg

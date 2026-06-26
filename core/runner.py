@@ -24,10 +24,16 @@ class Runner():
             train_loop = tqdm.tqdm(self.experiment.train_loader, desc=f"Epoch {epoch+1}/{self.experiment.n_epochs} - Training")
             for i, data in enumerate(train_loop):
                 loss = 0
-                loss, pred, backward_status = self.experiment.model.train_step(data)
+                loss, pred, backward_status = self.experiment.model.train_step(
+                    data,
+                    compute_metrics=self.experiment.train_metrics_enabled,
+                )
                 if backward_status != 0:
                     self.experiment.logger.log_gradient_error(epoch=epoch, iter=i)           
-                self.experiment.train_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
+                if self.experiment.train_metrics_enabled:
+                    self.experiment.train_metrics.update(pred, data["gt_image"].to(self.experiment.device, non_blocking=self.experiment.non_blocking), loss)
+                else:
+                    self.experiment.train_metrics.update_loss(loss)
                 train_loop.set_postfix(loss=loss)
 
             self.experiment.model.eval()
