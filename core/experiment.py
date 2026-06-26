@@ -228,9 +228,10 @@ class Experiment():
     def prepare_data(self):
         pin_memory = self.device.type == "cuda"
         train_load_gt = self.train_metrics_enabled or self.model_type != "IE"
+        train_input_size = None if train_load_gt else self.model_parameters.get("input_size", None)
         if self.data_type == "RGB":
             self.train_dataset = RGBDataset(self.dataset_root, self.train_list, self.rgb_camera, self.gt_type,
-                                            is_train=True, seed=self.seed, load_gt=train_load_gt)
+                                            is_train=True, seed=self.seed, load_gt=train_load_gt, input_size=train_input_size)
             self.val_dataset = RGBDataset(self.dataset_root, self.val_list, self.rgb_camera, self.gt_type,
                                           is_train=False, seed=self.seed)
             self.test_dataset = RGBDataset(self.dataset_root, self.test_list, self.rgb_camera, self.gt_type,

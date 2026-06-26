@@ -103,11 +103,12 @@ class RGBDataset(BaseDataset):
     def __init__(self, dataset_root, files_list, rgb_camera, gt_type, 
                  is_train=True, seed=42,
                  ssf_path=None, illuminants_path=None, spectral_datasets=None,
-                 load_gt=True):
+                 load_gt=True, input_size=None):
         super(RGBDataset, self).__init__(dataset_root, files_list, is_train=is_train, seed=seed)
         self.rgb_camera = rgb_camera
         self.gt_type = gt_type
         self.load_gt = load_gt
+        self.input_size = input_size
         
         # Check if pre-generated images exist
         sample_file = self.files_list[0] if len(self.files_list) > 0 else None
@@ -146,6 +147,8 @@ class RGBDataset(BaseDataset):
             illuminant_idx = self._get_illuminant_idx(idx, scene_key)
             
             rgb_image, metadata = self.renderer.render_rgb(scene_name, dataset_code, illuminant_idx)
+            if self.input_size is not None:
+                rgb_image = cv2.resize(rgb_image.transpose(1, 2, 0), (self.input_size, self.input_size), interpolation=cv2.INTER_AREA).transpose(2, 0, 1)
             
             if self.load_gt:
                 # Generate GT
@@ -168,7 +171,7 @@ class RGBDataset(BaseDataset):
             ill_name = "ILL" + file_name.split("_ILL")[1]
 
             # Load RGB image 
-            rgb_image = load_rgb_image(path=os.path.join(self.dataset_root, self.rgb_camera, "imgs", file_name+".png"), bit_depth=12)
+            rgb_image = load_rgb_image(path=os.path.join(self.dataset_root, self.rgb_camera, "imgs", file_name+".png"), bit_depth=12, output_size=self.input_size)
 
             # Load metadata
             metadata = load_metadata(path=os.path.join(self.dataset_root, self.rgb_camera, "metadata", ill_name+".json"))

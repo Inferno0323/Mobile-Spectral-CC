@@ -154,9 +154,11 @@ def save_h5(path, spec, wvs):
 
     hf.close()
 
-def load_rgb_image(path, bit_depth=12):
+def load_rgb_image(path, bit_depth=12, output_size=None):
     img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if output_size is not None:
+        img = cv2.resize(img, (output_size, output_size), interpolation=cv2.INTER_AREA)
     img = img.astype(np.float32) / (2**bit_depth - 1)
     img =img.transpose(2,0,1) # HWC to CHW
 
